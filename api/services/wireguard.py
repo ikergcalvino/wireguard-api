@@ -1,6 +1,6 @@
 import asyncio
 import ipaddress
-import json
+import re
 from pathlib import Path
 
 from api.config import settings
@@ -30,28 +30,48 @@ async def _generate_keypair() -> tuple[str, str]:
     return privkey, pubkey
 
 
-def _iface_dir(iface: str) -> Path:
-    path = Path(settings.WG_CONFIG_DIR) / iface
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+def _conf_path(iface: str) -> Path:
+    return Path(settings.WG_CONFIG_DIR) / f"{iface}.conf"
 
 
-def _iface_db_path(iface: str) -> Path:
-    return _iface_dir(iface) / "interface.json"
+def _parse_conf(iface: str) -> dict | None:
+    path = _conf_path(iface)
+    if not path.exists():
+        return None
+
+    text = path.read_text()
+    result = {"interface": {}, "peers": []}
+
+    current = None
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line == "[Interface]":
+            current = result["interface"]
+            continue
+        if line == "[Peer]":
+            current = {}
+            result["peers"].append(current)
+            continue
+        if current is None:
+            continue
+        match = re.match(r"^(\w+)\s*=\s*(.+)$", line)
+        if match:
+            key, value = match.group(1), match.group(2).strip()
+            current[key] = value
+
+    return result
 
 
-def _peers_db_path(iface: str) -> Path:
-    return _iface_dir(iface) / "peers.json"
-
-
-def _load_json(path: Path) -> dict:
-    if path.exists():
-        return json.loads(path.read_text())
-    return {}
-
-
-def _save_json(path: Path, data: dict) -> None:
-    path.write_text(json.dumps(data, indent=2))
+def _pubkey_from_privkey_sync(privkey: str) -> str:
+    import subprocess
+    proc = subprocess.run(
+        ["wg", "pubkey"],
+        input=privkey.encode(),
+        capture_output=True,
+    )
+    return proc.stdout.decode().strip()
 
 
 # ---------------------------------------------------------------------------
@@ -65,24 +85,13 @@ async def create_interface(
     post_up: str,
     post_down: str,
 ) -> dict:
-    db_path = _iface_db_path(name)
-    if db_path.exists():
+    conf = _conf_path(name)
+    if conf.exists():
         raise ValueError(f"Interface '{name}' already exists")
 
     privkey, pubkey = await _generate_keypair()
 
-    iface_data = {
-        "name": name,
-        "private_key": privkey,
-        "public_key": pubkey,
-        "address": address,
-        "listen_port": listen_port,
-        "post_up": post_up,
-        "post_down": post_down,
-    }
-
-    conf_path = Path(settings.WG_CONFIG_DIR) / f"{name}.conf"
-    conf_path.write_text(
+    conf.write_text(
         f"[Interface]\n"
         f"Address = {address}\n"
         f"ListenPort = {listen_port}\n"
@@ -90,49 +99,53 @@ async def create_interface(
         f"PostUp = {post_up}\n"
         f"PostDown = {post_down}\n"
     )
-    conf_path.chmod(0o600)
-
-    _save_json(db_path, iface_data)
-    _save_json(_peers_db_path(name), {})
+    conf.chmod(0o600)
 
     await _run(f"wg-quick up {name}")
 
-    return {**iface_data, "status": "up", "total_peers": 0, "enabled_peers": 0}
+    return {
+        "name": name,
+        "public_key": pubkey,
+        "address": address,
+        "listen_port": listen_port,
+        "status": "up",
+        "total_peers": 0,
+    }
 
 
 async def list_interfaces() -> list[dict]:
     config_dir = Path(settings.WG_CONFIG_DIR)
     interfaces = []
-    for iface_dir in sorted(config_dir.iterdir()):
-        if not iface_dir.is_dir():
+    for conf_file in sorted(config_dir.glob("*.conf")):
+        name = conf_file.stem
+        parsed = _parse_conf(name)
+        if not parsed:
             continue
-        db_path = iface_dir / "interface.json"
-        if not db_path.exists():
-            continue
-        iface = _load_json(db_path)
-        name = iface["name"]
+        iface = parsed["interface"]
+        privkey = iface.get("PrivateKey", "")
+        pubkey = _pubkey_from_privkey_sync(privkey) if privkey else ""
         _, _, rc = await _run(f"wg show {name}")
-        peers_db = _load_json(_peers_db_path(name))
         interfaces.append({
             "name": name,
-            "public_key": iface["public_key"],
-            "address": iface["address"],
-            "listen_port": iface["listen_port"],
+            "public_key": pubkey,
+            "address": iface.get("Address", ""),
+            "listen_port": int(iface.get("ListenPort", 0)),
             "status": "up" if rc == 0 else "down",
-            "total_peers": len(peers_db),
-            "enabled_peers": sum(1 for p in peers_db.values() if p.get("enabled", True)),
+            "total_peers": len(parsed["peers"]),
         })
     return interfaces
 
 
 async def get_interface(name: str) -> dict | None:
-    db_path = _iface_db_path(name)
-    if not db_path.exists():
+    parsed = _parse_conf(name)
+    if not parsed:
         return None
 
-    iface = _load_json(db_path)
-    stdout, _, rc = await _run(f"wg show {name}")
+    iface = parsed["interface"]
+    privkey = iface.get("PrivateKey", "")
+    pubkey = _pubkey_from_privkey_sync(privkey) if privkey else ""
 
+    stdout, _, rc = await _run(f"wg show {name}")
     transfer = None
     if rc == 0:
         for line in stdout.splitlines():
@@ -140,35 +153,24 @@ async def get_interface(name: str) -> dict | None:
             if line.startswith("transfer:"):
                 transfer = line.split(":", 1)[1].strip()
 
-    peers_db = _load_json(_peers_db_path(name))
     return {
         "name": name,
-        "public_key": iface["public_key"],
-        "address": iface["address"],
-        "listen_port": iface["listen_port"],
+        "public_key": pubkey,
+        "address": iface.get("Address", ""),
+        "listen_port": int(iface.get("ListenPort", 0)),
         "status": "up" if rc == 0 else "down",
         "transfer": transfer,
-        "total_peers": len(peers_db),
-        "enabled_peers": sum(1 for p in peers_db.values() if p.get("enabled", True)),
+        "total_peers": len(parsed["peers"]),
     }
 
 
 async def delete_interface(name: str) -> bool:
-    db_path = _iface_db_path(name)
-    if not db_path.exists():
+    conf = _conf_path(name)
+    if not conf.exists():
         return False
 
     await _run(f"wg-quick down {name}")
-
-    conf_path = Path(settings.WG_CONFIG_DIR) / f"{name}.conf"
-    if conf_path.exists():
-        conf_path.unlink()
-
-    iface_dir = _iface_dir(name)
-    for f in iface_dir.iterdir():
-        f.unlink()
-    iface_dir.rmdir()
-
+    conf.unlink()
     return True
 
 
@@ -176,16 +178,15 @@ async def delete_interface(name: str) -> bool:
 # Peers
 # ---------------------------------------------------------------------------
 
-def _next_ip(iface: str) -> str:
-    iface_data = _load_json(_iface_db_path(iface))
-    address = iface_data["address"]
+def _next_ip(parsed: dict) -> str:
+    address = parsed["interface"].get("Address", "")
     network = ipaddress.ip_network(address, strict=False)
     server_ip = address.split("/")[0]
 
-    peers_db = _load_json(_peers_db_path(iface))
     used = {server_ip}
-    for peer in peers_db.values():
-        used.add(peer["address"].split("/")[0])
+    for peer in parsed["peers"]:
+        for ip in peer.get("AllowedIPs", "").split(","):
+            used.add(ip.strip().split("/")[0])
 
     for host in network.hosts():
         if str(host) not in used:
@@ -193,97 +194,81 @@ def _next_ip(iface: str) -> str:
     raise ValueError("No available IPs in subnet")
 
 
-async def create_peer(iface: str, name: str, allowed_ips: str, dns: str) -> dict:
-    if not _iface_db_path(iface).exists():
+async def create_peer(iface: str, allowed_ips: str) -> dict:
+    parsed = _parse_conf(iface)
+    if not parsed:
         raise ValueError(f"Interface '{iface}' not found")
 
-    peers_db = _load_json(_peers_db_path(iface))
-    if name in peers_db:
-        raise ValueError(f"Peer '{name}' already exists on interface '{iface}'")
-
     privkey, pubkey = await _generate_keypair()
-    address = _next_ip(iface)
+    address = _next_ip(parsed)
 
     if not allowed_ips:
-        allowed_ips = "0.0.0.0/0"
+        allowed_ips = f"{address}/32"
 
-    peer_data = {
-        "name": name,
-        "private_key": privkey,
-        "public_key": pubkey,
-        "address": f"{address}/32",
-        "allowed_ips": allowed_ips,
-        "dns": dns,
-        "enabled": True,
-    }
-
-    await _run(f"wg set {iface} peer {pubkey} allowed-ips {address}/32")
+    await _run(f"wg set {iface} peer {pubkey} allowed-ips {allowed_ips}")
     await _run(f"wg-quick save {iface}")
 
-    peers_db[name] = peer_data
-    _save_json(_peers_db_path(iface), peers_db)
-
-    return peer_data
+    return {
+        "public_key": pubkey,
+        "private_key": privkey,
+        "allowed_ips": allowed_ips,
+        "address": f"{address}/32",
+    }
 
 
 async def list_peers(iface: str) -> list[dict]:
-    if not _iface_db_path(iface).exists():
+    parsed = _parse_conf(iface)
+    if not parsed:
         raise ValueError(f"Interface '{iface}' not found")
 
-    peers_db = _load_json(_peers_db_path(iface))
     runtime = await _get_runtime_info(iface)
     peers = []
-    for name, peer in peers_db.items():
-        info = runtime.get(peer["public_key"], {})
+    for peer in parsed["peers"]:
+        pubkey = peer.get("PublicKey", "")
+        info = runtime.get(pubkey, {})
         peers.append({
-            "name": name,
-            "public_key": peer["public_key"],
-            "allowed_ips": peer["address"],
+            "public_key": pubkey,
+            "allowed_ips": peer.get("AllowedIPs", ""),
             "endpoint": info.get("endpoint"),
             "latest_handshake": info.get("latest_handshake"),
             "transfer_rx": info.get("transfer_rx"),
             "transfer_tx": info.get("transfer_tx"),
-            "enabled": peer.get("enabled", True),
         })
     return peers
 
 
-async def get_peer(iface: str, name: str) -> dict | None:
-    if not _iface_db_path(iface).exists():
+async def get_peer(iface: str, public_key: str) -> dict | None:
+    parsed = _parse_conf(iface)
+    if not parsed:
         raise ValueError(f"Interface '{iface}' not found")
 
-    peers_db = _load_json(_peers_db_path(iface))
-    peer = peers_db.get(name)
+    peer = next((p for p in parsed["peers"] if p.get("PublicKey") == public_key), None)
     if not peer:
         return None
 
     runtime = await _get_runtime_info(iface)
-    info = runtime.get(peer["public_key"], {})
+    info = runtime.get(public_key, {})
     return {
-        "name": name,
-        "public_key": peer["public_key"],
-        "allowed_ips": peer["address"],
+        "public_key": public_key,
+        "allowed_ips": peer.get("AllowedIPs", ""),
         "endpoint": info.get("endpoint"),
         "latest_handshake": info.get("latest_handshake"),
         "transfer_rx": info.get("transfer_rx"),
         "transfer_tx": info.get("transfer_tx"),
-        "enabled": peer.get("enabled", True),
     }
 
 
-async def delete_peer(iface: str, name: str) -> bool:
-    if not _iface_db_path(iface).exists():
+async def delete_peer(iface: str, public_key: str) -> bool:
+    parsed = _parse_conf(iface)
+    if not parsed:
         raise ValueError(f"Interface '{iface}' not found")
 
-    peers_db = _load_json(_peers_db_path(iface))
-    peer = peers_db.pop(name, None)
+    peer = next((p for p in parsed["peers"] if p.get("PublicKey") == public_key), None)
     if not peer:
         return False
 
-    await _run(f"wg set {iface} peer {peer['public_key']} remove")
+    await _run(f"wg set {iface} peer {public_key} remove")
     await _run(f"wg-quick save {iface}")
-
-    _save_json(_peers_db_path(iface), peers_db)
     return True
 
 

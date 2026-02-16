@@ -54,8 +54,10 @@ Todos los endpoints están bajo `/api/v1`. Si `WG_API_API_KEY` está configurada
 |----------|-----------------------------------------------|------------------------|
 | `GET`    | `/api/v1/interfaces/{iface}/peers`            | Listar peers           |
 | `POST`   | `/api/v1/interfaces/{iface}/peers`            | Crear peer             |
-| `GET`    | `/api/v1/interfaces/{iface}/peers/{name}`     | Detalle de un peer     |
-| `DELETE` | `/api/v1/interfaces/{iface}/peers/{name}`     | Eliminar peer          |
+| `GET`    | `/api/v1/interfaces/{iface}/peers/{public_key}`  | Detalle de un peer     |
+| `DELETE` | `/api/v1/interfaces/{iface}/peers/{public_key}`  | Eliminar peer          |
+
+Los peers se identifican por su `public_key`. Al crear un peer se devuelve la `private_key` **una sola vez** (el servidor no la persiste).
 
 ### Ejemplos
 
@@ -66,11 +68,11 @@ curl -X POST http://localhost:8000/api/v1/interfaces \
   -H "X-API-Key: your-secret-api-key" \
   -d '{"name": "wg0", "address": "10.0.0.1/24", "listen_port": 51820}'
 
-# Crear peer en wg0
+# Crear peer en wg0 (devuelve private_key una sola vez)
 curl -X POST http://localhost:8000/api/v1/interfaces/wg0/peers \
   -H "Content-Type: application/json" \
   -H "X-API-Key: your-secret-api-key" \
-  -d '{"name": "mi-laptop", "dns": "1.1.1.1"}'
+  -d '{}'
 ```
 
 ## Configuración (variables de entorno)

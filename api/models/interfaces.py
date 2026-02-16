@@ -16,7 +16,6 @@ class InterfaceResponse(BaseModel):
     listen_port: int
     status: str
     total_peers: int = 0
-    enabled_peers: int = 0
 
 
 class InterfaceDetailResponse(InterfaceResponse):
