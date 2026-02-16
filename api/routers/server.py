@@ -1,15 +1,2 @@
-from fastapi import APIRouter
-
-from api.services import wireguard as wg
-
-router = APIRouter(prefix="/server", tags=["server"])
-
-
-@router.get("/status")
-async def server_status():
-    return await wg.get_server_status()
-
-
-@router.get("/health")
-async def health():
-    return {"status": "ok"}
+# This router has been replaced by api/routers/interfaces.py
+# Health check moved to api/main.py

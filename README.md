@@ -1,6 +1,6 @@
 # wireguard-api
 
-WireGuard VPN dockerizado con API REST (FastAPI) para gestionar peers y monitorizar el servidor.
+WireGuard VPN dockerizado con API REST (FastAPI) para gestionar interfaces y peers.
 
 ## Estructura
 
@@ -10,15 +10,16 @@ wireguard-api/
 │   ├── main.py            # FastAPI app + auth middleware
 │   ├── config.py          # Settings via env vars
 │   ├── models/
-│   │   └── peers.py       # Pydantic schemas
+│   │   ├── interfaces.py  # Schemas de interfaces
+│   │   └── peers.py       # Schemas de peers
 │   ├── routers/
-│   │   ├── peers.py       # CRUD de peers
-│   │   └── server.py      # Estado del servidor
+│   │   ├── interfaces.py  # CRUD de interfaces
+│   │   └── peers.py       # CRUD de peers (sub-recurso)
 │   └── services/
 │       └── wireguard.py   # Gestión de WireGuard (wg CLI)
 ├── Dockerfile             # Alpine + wireguard-tools + Python
 ├── docker-compose.yml
-├── entrypoint.sh          # Inicializa WireGuard + arranca API
+├── entrypoint.sh          # Levanta interfaces existentes + arranca API
 ├── requirements.txt
 ├── .env.example
 └── config/                # Volumen persistente (generado)
@@ -36,20 +37,37 @@ docker compose up -d --build
 
 Todos los endpoints están bajo `/api/v1`. Si `WG_API_API_KEY` está configurada, incluye el header `X-API-Key`.
 
-| Método   | Ruta                    | Descripción                  |
-|----------|-------------------------|------------------------------|
-| `GET`    | `/`                     | Info de la API               |
-| `GET`    | `/api/v1/server/health` | Health check                 |
-| `GET`    | `/api/v1/server/status` | Estado de WireGuard          |
-| `GET`    | `/api/v1/peers`         | Listar todos los peers       |
-| `GET`    | `/api/v1/peers/{name}`  | Obtener un peer por nombre   |
-| `POST`   | `/api/v1/peers`         | Crear un nuevo peer          |
-| `DELETE` | `/api/v1/peers/{name}`  | Eliminar un peer             |
+### Interfaces
 
-### Crear peer
+| Método   | Ruta                          | Descripción                    |
+|----------|-------------------------------|--------------------------------|
+| `GET`    | `/`                           | Info de la API                 |
+| `GET`    | `/api/v1/health`              | Health check                   |
+| `GET`    | `/api/v1/interfaces`          | Listar interfaces              |
+| `POST`   | `/api/v1/interfaces`          | Crear interfaz                 |
+| `GET`    | `/api/v1/interfaces/{name}`   | Detalle de una interfaz        |
+| `DELETE` | `/api/v1/interfaces/{name}`   | Eliminar interfaz              |
+
+### Peers
+
+| Método   | Ruta                                          | Descripción            |
+|----------|-----------------------------------------------|------------------------|
+| `GET`    | `/api/v1/interfaces/{iface}/peers`            | Listar peers           |
+| `POST`   | `/api/v1/interfaces/{iface}/peers`            | Crear peer             |
+| `GET`    | `/api/v1/interfaces/{iface}/peers/{name}`     | Detalle de un peer     |
+| `DELETE` | `/api/v1/interfaces/{iface}/peers/{name}`     | Eliminar peer          |
+
+### Ejemplos
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/peers \
+# Crear interfaz
+curl -X POST http://localhost:8000/api/v1/interfaces \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your-secret-api-key" \
+  -d '{"name": "wg0", "address": "10.0.0.1/24", "listen_port": 51820}'
+
+# Crear peer en wg0
+curl -X POST http://localhost:8000/api/v1/interfaces/wg0/peers \
   -H "Content-Type: application/json" \
   -H "X-API-Key: your-secret-api-key" \
   -d '{"name": "mi-laptop", "dns": "1.1.1.1"}'
@@ -59,10 +77,6 @@ curl -X POST http://localhost:8000/api/v1/peers \
 
 | Variable                     | Default            | Descripción                        |
 |------------------------------|--------------------|------------------------------------|
-| `WG_API_WG_INTERFACE`       | `wg0`              | Interfaz WireGuard                 |
 | `WG_API_WG_CONFIG_DIR`      | `/etc/wireguard`   | Directorio de configuración        |
-| `WG_API_WG_SERVER_IP`       | `10.0.0.1`         | IP del servidor en la VPN          |
-| `WG_API_WG_SUBNET`          | `10.0.0.0/24`      | Subred de la VPN                   |
-| `WG_API_WG_PORT`            | `51820`            | Puerto UDP de WireGuard            |
 | `WG_API_WG_SERVER_ENDPOINT` | (vacío)            | IP/dominio público del servidor    |
 | `WG_API_API_KEY`            | (vacío)            | API Key (si vacío, sin auth)       |
