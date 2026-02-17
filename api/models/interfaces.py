@@ -1,27 +1,13 @@
 from pydantic import BaseModel
 
 
-class InterfaceCreate(BaseModel):
+class Interface(BaseModel):
     name: str
-    address: str = "10.0.0.1/24"
-    listen_port: int = 51820
-    post_up: str = "iptables -A FORWARD -i %i -j ACCEPT; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE"
-    post_down: str = "iptables -D FORWARD -i %i -j ACCEPT; iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE"
-
-
-class InterfaceResponse(BaseModel):
-    name: str
-    public_key: str
-    address: str
-    listen_port: int
-    status: str
-    total_peers: int = 0
-
-
-class InterfaceDetailResponse(InterfaceResponse):
-    transfer: str | None = None
-
-
-class InterfaceListResponse(BaseModel):
-    interfaces: list[InterfaceResponse]
-    total: int
+    address: str | None = None
+    listen_port: int | None = None
+    private_key: str | None = None
+    public_key: str | None = None
+    post_up: str | None = None
+    post_down: str | None = None
+    fwmark: str | None = None
+    num_peers: int | None = None

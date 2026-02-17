@@ -1,12 +1,3 @@
-from pydantic_settings import BaseSettings
+import os
 
-
-class Settings(BaseSettings):
-    WG_CONFIG_DIR: str = "/etc/wireguard"
-    WG_SERVER_ENDPOINT: str = ""
-    API_KEY: str = ""
-
-    model_config = {"env_prefix": "WG_API_"}
-
-
-settings = Settings()
+API_KEY = os.getenv("WG_API_KEY", "")
