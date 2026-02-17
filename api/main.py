@@ -1,8 +1,11 @@
+import os
+
 from fastapi import Depends, FastAPI, HTTPException, Security
 from fastapi.security import APIKeyHeader
 
-from api.config import API_KEY
 from api.routers import interfaces, peers
+
+API_KEY = os.getenv("WG_API_KEY", "")
 
 app = FastAPI(
     title="WireGuard API",
