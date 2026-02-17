@@ -1,9 +1,6 @@
 #!/bin/sh
 set -e
 
-# Enable IP forwarding
-echo 1 > /proc/sys/net/ipv4/ip_forward
-
 # Bring up any existing interfaces
 for conf in /etc/wireguard/*.conf; do
     [ -f "${conf}" ] || continue
