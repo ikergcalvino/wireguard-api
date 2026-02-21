@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wireguard-api"
+version = "0.1.0"
+description = "REST API to manage WireGuard interfaces and peers on the host"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [
+  { name = "Iker García Calviño", email = "iker.gcalvino@udc.es" },
+]
+
+dependencies = [
+  "fastapi==0.115.6",
+  "uvicorn[standard]==0.34.0",
+  "pydantic==2.10.4",
+  "pydantic-settings==2.7.1",
+]
+
+[project.optional-dependencies]
+lint = ["ruff>=0.9.0"]
+test = ["pytest>=8.0", "pytest-asyncio>=0.25.0", "httpx>=0.28.0"]
+type = ["mypy>=1.14.0"]
+dev = ["wireguard-api[lint,test,type]"]
+
+[project.urls]
+Repository = "https://github.com/ikergcalvino/wireguard-api"
+Issues = "https://github.com/ikergcalvino/wireguard-api/issues"
+Changelog = "https://github.com/ikergcalvino/wireguard-api/releases"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "S"]
+ignore = ["S603", "S607"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["api"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_unused_configs = true
+check_untyped_defs = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

@@ -18,21 +18,41 @@ The API runs inside a Docker container with `network_mode: host`, giving it dire
 
 ## Prerequisites
 
-The **host** machine must have:
+Regardless of the installation method, the **host** must have:
 
 - WireGuard kernel module loaded (`sudo modprobe wireguard`)
 - IP forwarding enabled (`sysctl net.ipv4.ip_forward=1`)
 - `/etc/wireguard` directory with appropriate permissions
-- Docker and Docker Compose
 
-## Quick Start
+## Installation
 
 ```bash
-git clone https://github.com/your-user/wireguard-api.git
+git clone https://github.com/ikergcalvino/wireguard-api.git
 cd wireguard-api
 cp .env.example .env    # edit with your settings
-docker compose up -d --build
 ```
+
+### Docker (recommended)
+
+Requires Docker and Docker Compose.
+
+```bash
+make up        # or: docker compose up -d --build
+make down      # stop
+make logs      # follow logs
+```
+
+### Native / Bare metal
+
+Requires Python 3.10+ and `wireguard-tools` installed on the host.
+
+```bash
+python -m venv .venv && source .venv/bin/activate
+make install   # pip install .
+make run       # uvicorn on 0.0.0.0:8000
+```
+
+> **Note:** The process needs `CAP_NET_ADMIN` to manage WireGuard interfaces. Run with `sudo` or grant the capability to the Python binary.
 
 The API will be available at `http://localhost:8000` (or your configured `WG_API_PORT`).
 
@@ -129,16 +149,15 @@ wireguard-api/
 ├── .github/               # CI workflow, issue & PR templates
 ├── Dockerfile
 ├── docker-compose.yml
-├── pyproject.toml         # Project metadata, ruff & pytest config
-├── Makefile               # Dev shortcuts
-└── requirements.txt
+├── pyproject.toml         # Project metadata, dependencies & tool config
+└── Makefile               # Dev shortcuts
 ```
 
 ## Development
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt && pip install -e ".[dev]"
+make install-dev   # pip install -e ".[dev]"
 cp .env.example .env
 ```
 
@@ -146,10 +165,9 @@ cp .env.example .env
 make dev       # run with hot reload
 make lint      # ruff check
 make format    # ruff format
+make type      # mypy
 make test      # pytest
 ```
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for full guidelines.
 
 ## How It Works
 
