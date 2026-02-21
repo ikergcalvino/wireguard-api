@@ -1,9 +1,13 @@
-from fastapi import APIRouter, HTTPException
+from typing import Annotated
+
+from fastapi import APIRouter, HTTPException, Path
 
 from api.models.interfaces import Interface
 from api.services import wireguard as wg
 
 router = APIRouter(prefix="/interfaces", tags=["interfaces"])
+
+IfaceName = Annotated[str, Path(pattern=r"^[a-zA-Z0-9_-]{1,15}$")]
 
 
 @router.get("", response_model=list[Interface])
@@ -36,7 +40,7 @@ async def create_interface(body: Interface):
 
 
 @router.get("/{name}", response_model=Interface)
-async def get_interface(name: str):
+async def get_interface(name: IfaceName):
     data = await wg.get_interface(name)
     if not data:
         raise HTTPException(status_code=404, detail=f"Interface '{name}' not found")
@@ -44,7 +48,7 @@ async def get_interface(name: str):
 
 
 @router.delete("/{name}", status_code=204)
-async def delete_interface(name: str):
+async def delete_interface(name: IfaceName):
     try:
         stderr, rc = await wg.delete_interface(name)
     except FileNotFoundError as e:
@@ -52,7 +56,7 @@ async def delete_interface(name: str):
 
 
 @router.post("/{name}/up")
-async def interface_up(name: str):
+async def interface_up(name: IfaceName):
     stderr, rc = await wg.interface_up(name)
     if rc != 0:
         raise HTTPException(status_code=400, detail=stderr)
@@ -60,7 +64,7 @@ async def interface_up(name: str):
 
 
 @router.post("/{name}/down")
-async def interface_down(name: str):
+async def interface_down(name: IfaceName):
     stderr, rc = await wg.interface_down(name)
     if rc != 0:
         raise HTTPException(status_code=400, detail=stderr)
@@ -68,7 +72,7 @@ async def interface_down(name: str):
 
 
 @router.post("/{name}/save")
-async def interface_save(name: str):
+async def interface_save(name: IfaceName):
     stderr, rc = await wg.interface_save(name)
     if rc != 0:
         raise HTTPException(status_code=400, detail=stderr)

@@ -1,15 +1,26 @@
 import asyncio
+import logging
+import os
 from pathlib import Path
 
-WG_CONFIG_DIR = Path("/etc/wireguard")
+logger = logging.getLogger("wireguard-api")
+
+WG_CONFIG_DIR = Path(os.getenv("WG_CONFIG_DIR", "/etc/wireguard"))
 
 
-async def _run(cmd: str) -> tuple[str, str, int]:
-    proc = await asyncio.create_subprocess_shell(
-        cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+async def _run(args: list[str], stdin_data: bytes | None = None) -> tuple[str, str, int]:
+    logger.debug("exec: %s", args)
+    proc = await asyncio.create_subprocess_exec(
+        *args,
+        stdin=asyncio.subprocess.PIPE if stdin_data else None,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
     )
-    stdout, stderr = await proc.communicate()
-    return stdout.decode().strip(), stderr.decode().strip(), proc.returncode
+    stdout, stderr = await proc.communicate(input=stdin_data)
+    out, err, rc = stdout.decode().strip(), stderr.decode().strip(), proc.returncode
+    if rc != 0:
+        logger.warning("cmd %s failed (rc=%d): %s", args, rc, err)
+    return out, err, rc
 
 
 # ---------------------------------------------------------------------------
@@ -42,7 +53,8 @@ async def create_interface(
     conf.write_text("\n".join(lines) + "\n")
     conf.chmod(0o600)
 
-    _, stderr, rc = await _run(f"wg-quick up {name}")
+    logger.info("creating interface %s", name)
+    _, stderr, rc = await _run(["wg-quick", "up", name])
     return stderr, rc
 
 
@@ -51,28 +63,32 @@ async def delete_interface(name: str) -> tuple[str, int]:
     if not conf.exists():
         raise FileNotFoundError(f"Interface '{name}' not found")
 
-    _, stderr, rc = await _run(f"wg-quick down {name}")
+    logger.info("deleting interface %s", name)
+    _, stderr, rc = await _run(["wg-quick", "down", name])
     conf.unlink(missing_ok=True)
     return stderr, rc
 
 
 async def interface_up(name: str) -> tuple[str, int]:
-    _, stderr, rc = await _run(f"wg-quick up {name}")
+    logger.info("bringing up interface %s", name)
+    _, stderr, rc = await _run(["wg-quick", "up", name])
     return stderr, rc
 
 
 async def interface_down(name: str) -> tuple[str, int]:
-    _, stderr, rc = await _run(f"wg-quick down {name}")
+    logger.info("bringing down interface %s", name)
+    _, stderr, rc = await _run(["wg-quick", "down", name])
     return stderr, rc
 
 
 async def interface_save(name: str) -> tuple[str, int]:
-    _, stderr, rc = await _run(f"wg-quick save {name}")
+    logger.info("saving interface %s", name)
+    _, stderr, rc = await _run(["wg-quick", "save", name])
     return stderr, rc
 
 
 async def list_interfaces() -> list[dict]:
-    stdout, _, rc = await _run("wg show interfaces")
+    stdout, _, rc = await _run(["wg", "show", "interfaces"])
     if rc != 0 or not stdout:
         return []
 
@@ -85,7 +101,7 @@ async def list_interfaces() -> list[dict]:
 
 
 async def get_interface(name: str) -> dict | None:
-    stdout, _, rc = await _run(f"wg show {name} dump")
+    stdout, _, rc = await _run(["wg", "show", name, "dump"])
     if rc != 0:
         return None
 
@@ -115,14 +131,16 @@ async def create_peer(
     preshared_key: str | None = None,
     persistent_keepalive: int | None = None,
 ) -> tuple[str, int]:
-    cmd = f"wg set {iface} peer {public_key} allowed-ips {allowed_ips}"
+    args = ["wg", "set", iface, "peer", public_key, "allowed-ips", allowed_ips]
     if endpoint:
-        cmd += f" endpoint {endpoint}"
+        args += ["endpoint", endpoint]
     if preshared_key:
-        cmd += f" preshared-key /dev/stdin <<< {preshared_key}"
+        args += ["preshared-key", "/dev/stdin"]
     if persistent_keepalive is not None:
-        cmd += f" persistent-keepalive {persistent_keepalive}"
-    _, stderr, rc = await _run(cmd)
+        args += ["persistent-keepalive", str(persistent_keepalive)]
+    stdin_data = preshared_key.encode() if preshared_key else None
+    logger.info("creating peer %s on %s", public_key[:8], iface)
+    _, stderr, rc = await _run(args, stdin_data=stdin_data)
     return stderr, rc
 
 
@@ -133,24 +151,26 @@ async def update_peer(
     endpoint: str | None = None,
     persistent_keepalive: int | None = None,
 ) -> tuple[str, int]:
-    cmd = f"wg set {iface} peer {public_key}"
+    args = ["wg", "set", iface, "peer", public_key]
     if allowed_ips:
-        cmd += f" allowed-ips {allowed_ips}"
+        args += ["allowed-ips", allowed_ips]
     if endpoint:
-        cmd += f" endpoint {endpoint}"
+        args += ["endpoint", endpoint]
     if persistent_keepalive is not None:
-        cmd += f" persistent-keepalive {persistent_keepalive}"
-    _, stderr, rc = await _run(cmd)
+        args += ["persistent-keepalive", str(persistent_keepalive)]
+    logger.info("updating peer %s on %s", public_key[:8], iface)
+    _, stderr, rc = await _run(args)
     return stderr, rc
 
 
 async def delete_peer(iface: str, public_key: str) -> tuple[str, int]:
-    _, stderr, rc = await _run(f"wg set {iface} peer {public_key} remove")
+    logger.info("deleting peer %s from %s", public_key[:8], iface)
+    _, stderr, rc = await _run(["wg", "set", iface, "peer", public_key, "remove"])
     return stderr, rc
 
 
 async def list_peers(iface: str) -> list[dict] | None:
-    stdout, _, rc = await _run(f"wg show {iface} dump")
+    stdout, _, rc = await _run(["wg", "show", iface, "dump"])
     if rc != 0:
         return None
     return _parse_peers_dump(stdout.splitlines()[1:])
