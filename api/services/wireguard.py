@@ -1,11 +1,11 @@
 import asyncio
 import logging
-import os
-from pathlib import Path
+
+from api.config import settings
 
 logger = logging.getLogger("wireguard-api")
 
-WG_CONFIG_DIR = Path(os.getenv("WG_CONFIG_DIR", "/etc/wireguard"))
+WG_CONFIG_DIR = settings.config_dir
 
 
 async def _run(args: list[str], stdin_data: bytes | None = None) -> tuple[str, str, int]:
@@ -17,7 +17,7 @@ async def _run(args: list[str], stdin_data: bytes | None = None) -> tuple[str, s
         stderr=asyncio.subprocess.PIPE,
     )
     stdout, stderr = await proc.communicate(input=stdin_data)
-    out, err, rc = stdout.decode().strip(), stderr.decode().strip(), proc.returncode
+    out, err, rc = stdout.decode().strip(), stderr.decode().strip(), proc.returncode or 0
     if rc != 0:
         logger.warning("cmd %s failed (rc=%d): %s", args, rc, err)
     return out, err, rc
@@ -26,6 +26,7 @@ async def _run(args: list[str], stdin_data: bytes | None = None) -> tuple[str, s
 # ---------------------------------------------------------------------------
 # Interfaces
 # ---------------------------------------------------------------------------
+
 
 async def create_interface(
     name: str,
@@ -123,6 +124,7 @@ async def get_interface(name: str) -> dict | None:
 # Peers
 # ---------------------------------------------------------------------------
 
+
 async def create_peer(
     iface: str,
     public_key: str,
@@ -187,20 +189,23 @@ async def get_peer(iface: str, public_key: str) -> dict | None:
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _parse_peers_dump(lines: list[str]) -> list[dict]:
     peers = []
     for line in lines:
         parts = line.split("\t")
         if len(parts) < 8:
             continue
-        peers.append({
-            "public_key": parts[0],
-            "preshared_key": parts[1] if parts[1] != "(none)" else None,
-            "endpoint": parts[2] if parts[2] != "(none)" else None,
-            "allowed_ips": parts[3] if parts[3] != "(none)" else None,
-            "latest_handshake": int(parts[4]) if parts[4] != "0" else None,
-            "transfer_rx": int(parts[5]),
-            "transfer_tx": int(parts[6]),
-            "persistent_keepalive": int(parts[7]) if parts[7] != "off" else None,
-        })
+        peers.append(
+            {
+                "public_key": parts[0],
+                "preshared_key": parts[1] if parts[1] != "(none)" else None,
+                "endpoint": parts[2] if parts[2] != "(none)" else None,
+                "allowed_ips": parts[3] if parts[3] != "(none)" else None,
+                "latest_handshake": int(parts[4]) if parts[4] != "0" else None,
+                "transfer_rx": int(parts[5]),
+                "transfer_tx": int(parts[6]),
+                "persistent_keepalive": int(parts[7]) if parts[7] != "off" else None,
+            }
+        )
     return peers

@@ -32,7 +32,7 @@ async def create_interface(body: Interface):
             post_down=body.post_down,
         )
     except FileExistsError as e:
-        raise HTTPException(status_code=409, detail=str(e))
+        raise HTTPException(status_code=409, detail=str(e)) from None
     if rc != 0:
         raise HTTPException(status_code=400, detail=stderr)
     data = await wg.get_interface(body.name)
@@ -52,7 +52,9 @@ async def delete_interface(name: IfaceName):
     try:
         stderr, rc = await wg.delete_interface(name)
     except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail=str(e)) from None
+    if rc != 0:
+        raise HTTPException(status_code=400, detail=stderr)
 
 
 @router.post("/{name}/up")

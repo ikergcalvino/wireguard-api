@@ -1,7 +1,6 @@
-.git
-.env
-config/
-__pycache__
-*.pyc
-.venv
-README.md
+# Ignore everything
+*
+
+# Allow only what the Dockerfile needs
+!pyproject.toml
+!api/
