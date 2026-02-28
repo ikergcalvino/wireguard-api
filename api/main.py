@@ -40,9 +40,6 @@ app.add_middleware(
 
 register_exception_handlers(app)
 
-app.include_router(interfaces.router, prefix="/api/v1", dependencies=[Depends(verify_api_key)])
-app.include_router(peers.router, prefix="/api/v1", dependencies=[Depends(verify_api_key)])
-
 
 @app.get("/api/v1", dependencies=[Depends(verify_api_key)])
 async def root():
@@ -57,3 +54,7 @@ async def health():
     checks["wg_quick"] = "ok" if shutil.which("wg-quick") else "missing"
     ok = all(v == "ok" for v in checks.values())
     return {"status": "ok" if ok else "degraded", "checks": checks}
+
+
+app.include_router(interfaces.router, prefix="/api/v1", dependencies=[Depends(verify_api_key)])
+app.include_router(peers.router, prefix="/api/v1", dependencies=[Depends(verify_api_key)])
