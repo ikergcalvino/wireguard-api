@@ -1,17 +1,13 @@
-from typing import Annotated
-
-from fastapi import APIRouter, HTTPException, Path
+from fastapi import APIRouter, HTTPException
 
 from api.models.peers import Peer
+from api.routers import IfaceName, WgKey
 from api.services import wireguard as wg
 
 router = APIRouter(
     prefix="/interfaces/{iface}/peers",
     tags=["peers"],
 )
-
-IfaceName = Annotated[str, Path(pattern=r"^[a-zA-Z0-9_-]{1,15}$")]
-WgKey = Annotated[str, Path(pattern=r"^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=?$")]
 
 
 @router.get("", response_model=list[Peer])
@@ -26,9 +22,9 @@ async def list_peers(iface: IfaceName):
 async def create_peer(iface: IfaceName, body: Peer):
     if not body.allowed_ips:
         raise HTTPException(status_code=422, detail="allowed_ips is required")
-    stderr, rc = await wg.create_peer(
+    stderr, rc = await wg.set_peer(
         iface=iface,
-        public_key=body.public_key,
+        public_key=body.public_key or "",
         allowed_ips=body.allowed_ips,
         endpoint=body.endpoint,
         preshared_key=body.preshared_key,
@@ -36,8 +32,7 @@ async def create_peer(iface: IfaceName, body: Peer):
     )
     if rc != 0:
         raise HTTPException(status_code=400, detail=stderr)
-    peer = await wg.get_peer(iface, body.public_key)
-    return peer
+    return await wg.get_peer(iface, body.public_key or "")
 
 
 @router.get("/{public_key}", response_model=Peer)
@@ -50,7 +45,7 @@ async def get_peer(iface: IfaceName, public_key: WgKey):
 
 @router.put("/{public_key}", response_model=Peer)
 async def update_peer(iface: IfaceName, public_key: WgKey, body: Peer):
-    stderr, rc = await wg.update_peer(
+    stderr, rc = await wg.set_peer(
         iface=iface,
         public_key=public_key,
         allowed_ips=body.allowed_ips,
@@ -59,8 +54,7 @@ async def update_peer(iface: IfaceName, public_key: WgKey, body: Peer):
     )
     if rc != 0:
         raise HTTPException(status_code=400, detail=stderr)
-    peer = await wg.get_peer(iface, public_key)
-    return peer
+    return await wg.get_peer(iface, public_key)
 
 
 @router.delete("/{public_key}", status_code=204)

@@ -84,6 +84,12 @@ Interactive docs: `/docs` (Swagger UI) and `/redoc` (ReDoc).
 | `PUT`    | `/api/v1/interfaces/{iface}/peers/{public_key}`  | Update peer    |
 | `DELETE` | `/api/v1/interfaces/{iface}/peers/{public_key}`  | Remove peer    |
 
+### Utils
+
+| Method | Path                         | Description         |
+|--------|------------------------------|---------------------|
+| `POST` | `/api/v1/generate-keypair`   | Generate WG keypair |
+
 ### Other
 
 | Method | Path             | Description  |
@@ -117,6 +123,10 @@ curl -X POST http://localhost:8000/api/v1/interfaces/wg0/peers \
 # Save runtime state to .conf
 curl -X POST http://localhost:8000/api/v1/interfaces/wg0/save \
   -H "X-API-Key: your-secret-api-key"
+
+# Generate a new WireGuard keypair
+curl -X POST http://localhost:8000/api/v1/generate-keypair \
+  -H "X-API-Key: your-secret-api-key"
 ```
 
 ## Configuration
@@ -138,8 +148,9 @@ wireguard-api/
 │   ├── exceptions.py      # Global exception handlers
 │   ├── main.py            # FastAPI app, middleware, auth
 │   ├── models/
-│   │   ├── interfaces.py  # Interface Pydantic model
-│   │   └── peers.py       # Peer Pydantic model
+│   │   ├── constants.py   # Shared validation patterns
+│   │   ├── interfaces.py  # InterfaceCreate & Interface models
+│   │   └── peers.py       # PeerCreate, PeerUpdate & Peer models
 │   ├── routers/
 │   │   ├── interfaces.py  # Interface endpoints
 │   │   └── peers.py       # Peer endpoints

@@ -1,13 +1,10 @@
-from typing import Annotated
-
-from fastapi import APIRouter, HTTPException, Path
+from fastapi import APIRouter, HTTPException
 
 from api.models.interfaces import Interface
+from api.routers import IfaceName
 from api.services import wireguard as wg
 
 router = APIRouter(prefix="/interfaces", tags=["interfaces"])
-
-IfaceName = Annotated[str, Path(pattern=r"^[a-zA-Z0-9_-]{1,15}$")]
 
 
 @router.get("", response_model=list[Interface])
@@ -17,26 +14,10 @@ async def list_interfaces():
 
 @router.post("", response_model=Interface, status_code=201)
 async def create_interface(body: Interface):
-    if not body.address or not body.private_key:
-        raise HTTPException(
-            status_code=422,
-            detail="address and private_key are required to create an interface",
-        )
-    try:
-        stderr, rc = await wg.create_interface(
-            name=body.name,
-            address=body.address,
-            listen_port=body.listen_port or 51820,
-            private_key=body.private_key,
-            post_up=body.post_up,
-            post_down=body.post_down,
-        )
-    except FileExistsError as e:
-        raise HTTPException(status_code=409, detail=str(e)) from None
+    stderr, rc = await wg.create_interface(body)
     if rc != 0:
         raise HTTPException(status_code=400, detail=stderr)
-    data = await wg.get_interface(body.name)
-    return data
+    return await wg.get_interface(body.name)
 
 
 @router.get("/{name}", response_model=Interface)
@@ -49,10 +30,7 @@ async def get_interface(name: IfaceName):
 
 @router.delete("/{name}", status_code=204)
 async def delete_interface(name: IfaceName):
-    try:
-        stderr, rc = await wg.delete_interface(name)
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from None
+    stderr, rc = await wg.delete_interface(name)
     if rc != 0:
         raise HTTPException(status_code=400, detail=stderr)
 
