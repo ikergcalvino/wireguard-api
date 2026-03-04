@@ -1,10 +1,8 @@
-import re
 from ipaddress import ip_interface
 
 from pydantic import BaseModel, Field, field_validator
 
-RE_IFACE_NAME = re.compile(r"^[a-zA-Z0-9_=+.-]{1,15}$")
-RE_WG_KEY = re.compile(r"^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=?$")
+from api.models import IFACE_NAME_PATTERN, WG_KEY_PATTERN
 
 
 class Interface(BaseModel):
@@ -99,7 +97,7 @@ class Interface(BaseModel):
     @field_validator("name")
     @classmethod
     def validate_name(cls, v: str) -> str:
-        if not RE_IFACE_NAME.match(v):
+        if not IFACE_NAME_PATTERN.match(v):
             raise ValueError("Interface name must be 1-15 chars matching [a-zA-Z0-9_=+.-]")
         return v
 
@@ -117,6 +115,6 @@ class Interface(BaseModel):
     @field_validator("private_key", "public_key")
     @classmethod
     def validate_key(cls, v: str | None) -> str | None:
-        if v is not None and not RE_WG_KEY.match(v):
+        if v is not None and not WG_KEY_PATTERN.match(v):
             raise ValueError("Invalid WireGuard key format")
         return v

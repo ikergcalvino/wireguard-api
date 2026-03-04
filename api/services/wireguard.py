@@ -67,13 +67,13 @@ async def create_interface(iface: Interface) -> tuple[str, int]:
 
     conf = _conf_path(iface.name)
 
-    lines = ["[Interface]"]
-    if iface.address:
-        lines.append(f"Address = {iface.address}")
+    lines = [
+        "[Interface]",
+        f"Address = {iface.address}",
+        f"PrivateKey = {iface.private_key}",
+    ]
     if iface.listen_port is not None:
         lines.append(f"ListenPort = {iface.listen_port}")
-    if iface.private_key:
-        lines.append(f"PrivateKey = {iface.private_key}")
     if iface.fw_mark:
         lines.append(f"FwMark = {iface.fw_mark}")
     if iface.dns:

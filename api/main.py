@@ -1,4 +1,3 @@
-import logging
 import shutil
 from importlib.metadata import version
 
@@ -8,14 +7,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from api.config import settings
 from api.dependencies import verify_api_key
 from api.exceptions import register_exception_handlers
+from api.logging import setup_logging
 from api.routers import interfaces, peers
 
-logging.basicConfig(
-    level=getattr(logging, settings.log_level.upper(), logging.INFO),
-    format="%(asctime)s %(levelname)-8s [%(name)s] %(message)s",
-    datefmt="%Y-%m-%dT%H:%M:%S",
-)
-logger = logging.getLogger("wireguard-api")
+setup_logging()
 
 API_VERSION = version("wireguard-api")
 

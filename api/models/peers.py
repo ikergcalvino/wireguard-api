@@ -1,8 +1,6 @@
-import re
-
 from pydantic import BaseModel, Field, field_validator
 
-RE_WG_KEY = re.compile(r"^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=?$")
+from api.models import WG_KEY_PATTERN
 
 
 class Peer(BaseModel):
@@ -60,6 +58,6 @@ class Peer(BaseModel):
     @field_validator("public_key", "preshared_key")
     @classmethod
     def validate_key(cls, v: str | None) -> str | None:
-        if v is not None and not RE_WG_KEY.match(v):
+        if v is not None and not WG_KEY_PATTERN.match(v):
             raise ValueError("Invalid WireGuard key format")
         return v

@@ -2,5 +2,7 @@ from typing import Annotated
 
 from fastapi import Path
 
-IfaceName = Annotated[str, Path(pattern=r"^[a-zA-Z0-9_=+.-]{1,15}$")]
-WgKey = Annotated[str, Path(pattern=r"^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=?$")]
+from api.models import IFACE_NAME_PATTERN, WG_KEY_PATTERN
+
+IfaceName = Annotated[str, Path(pattern=IFACE_NAME_PATTERN.pattern)]
+WgKey = Annotated[str, Path(pattern=WG_KEY_PATTERN.pattern)]
