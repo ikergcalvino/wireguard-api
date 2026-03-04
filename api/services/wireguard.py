@@ -60,6 +60,65 @@ def _require_conf(name: str) -> Path:
 # ---------------------------------------------------------------------------
 
 
+def _read_conf_address(name: str) -> str | None:
+    conf = _conf_path(name)
+    if not conf.exists():
+        return None
+    addresses: list[str] = []
+    for line in conf.read_text().splitlines():
+        stripped = line.strip()
+        key, sep, value = stripped.partition("=")
+        if sep and key.strip().lower() == "address":
+            addresses.append(value.strip())
+    return ", ".join(addresses) if addresses else None
+
+
+async def list_interfaces() -> list[dict]:
+    stdout, _, rc = await _run(["wg", "show", "all", "dump"])
+    if rc != 0 or not stdout:
+        return []
+
+    interfaces: dict[str, dict] = {}
+    for line in stdout.splitlines():
+        parts = line.split("\t")
+        name = parts[0]
+        if len(parts) == 5:
+            interfaces[name] = {
+                "name": name,
+                "public_key": parts[2] if parts[2] != "(none)" else None,
+                "listen_port": int(parts[3]) if parts[3].isdigit() else None,
+                "fw_mark": parts[4] if parts[4] != "off" else None,
+                "num_peers": 0,
+                "address": _read_conf_address(name),
+            }
+        elif len(parts) == 9 and name in interfaces:
+            interfaces[name]["num_peers"] += 1
+
+    return list(interfaces.values())
+
+
+async def get_interface(name: str) -> dict | None:
+    stdout, _, rc = await _run(["wg", "show", name, "dump"])
+    if rc != 0:
+        return None
+
+    lines = stdout.splitlines()
+    if not lines:
+        return None
+
+    # wg show dump: private_key \t public_key \t listen_port \t fwmark
+    # parts[0] is private_key — intentionally omitted from response for security
+    parts = lines[0].split("\t")
+    return {
+        "name": name,
+        "public_key": parts[1] if len(parts) > 1 else None,
+        "listen_port": int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None,
+        "fw_mark": parts[3] if len(parts) > 3 and parts[3] != "off" else None,
+        "num_peers": len(lines) - 1,
+        "address": _read_conf_address(name),
+    }
+
+
 def _build_conf_content(iface: Interface) -> bytes:
     lines = ["[Interface]"]
     if iface.address:
@@ -157,55 +216,47 @@ async def interface_save(name: str) -> tuple[str, int]:
     return stderr, rc
 
 
-async def list_interfaces() -> list[dict]:
-    stdout, _, rc = await _run(["wg", "show", "all", "dump"])
-    if rc != 0 or not stdout:
-        return []
-
-    interfaces: dict[str, dict] = {}
-    for line in stdout.splitlines():
-        parts = line.split("\t")
-        name = parts[0]
-        if len(parts) == 5:
-            interfaces[name] = {
-                "name": name,
-                "public_key": parts[2] if parts[2] != "(none)" else None,
-                "listen_port": int(parts[3]) if parts[3].isdigit() else None,
-                "fw_mark": parts[4] if parts[4] != "off" else None,
-                "num_peers": 0,
-                "address": _read_conf_address(name),
-            }
-        elif len(parts) == 9 and name in interfaces:
-            interfaces[name]["num_peers"] += 1
-
-    return list(interfaces.values())
-
-
-async def get_interface(name: str) -> dict | None:
-    stdout, _, rc = await _run(["wg", "show", name, "dump"])
-    if rc != 0:
-        return None
-
-    lines = stdout.splitlines()
-    if not lines:
-        return None
-
-    # wg show dump: private_key \t public_key \t listen_port \t fwmark
-    # parts[0] is private_key — intentionally omitted from response for security
-    parts = lines[0].split("\t")
-    return {
-        "name": name,
-        "public_key": parts[1] if len(parts) > 1 else None,
-        "listen_port": int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None,
-        "fw_mark": parts[3] if len(parts) > 3 and parts[3] != "off" else None,
-        "num_peers": len(lines) - 1,
-        "address": _read_conf_address(name),
-    }
-
-
 # ---------------------------------------------------------------------------
 # Peers
 # ---------------------------------------------------------------------------
+
+
+def _parse_peers_dump(lines: list[str]) -> list[dict]:
+    peers = []
+    for line in lines:
+        parts = line.split("\t")
+        if len(parts) < 8:
+            continue
+        try:
+            peers.append(
+                {
+                    "public_key": parts[0],
+                    "preshared_key": parts[1] if parts[1] != "(none)" else None,
+                    "endpoint": parts[2] if parts[2] != "(none)" else None,
+                    "allowed_ips": parts[3] if parts[3] != "(none)" else None,
+                    "latest_handshake": int(parts[4]) if parts[4] != "0" else None,
+                    "transfer_rx": int(parts[5]),
+                    "transfer_tx": int(parts[6]),
+                    "persistent_keepalive": int(parts[7]) if parts[7] != "off" else None,
+                }
+            )
+        except (ValueError, IndexError):
+            logger.warning("skipping malformed peer dump line: %s", line)
+    return peers
+
+
+async def list_peers(iface: str) -> list[dict] | None:
+    stdout, _, rc = await _run(["wg", "show", iface, "dump"])
+    if rc != 0:
+        return None
+    return _parse_peers_dump(stdout.splitlines()[1:])
+
+
+async def get_peer(iface: str, public_key: str) -> dict | None:
+    peers = await list_peers(iface)
+    if peers is None:
+        return None
+    return next((p for p in peers if p["public_key"] == public_key), None)
 
 
 async def set_peer(
@@ -237,59 +288,3 @@ async def delete_peer(iface: str, public_key: str) -> tuple[str, int]:
     logger.info("deleting peer %s from %s", public_key[:8], iface)
     _, stderr, rc = await _run(["wg", "set", iface, "peer", public_key, "remove"])
     return stderr, rc
-
-
-async def list_peers(iface: str) -> list[dict] | None:
-    stdout, _, rc = await _run(["wg", "show", iface, "dump"])
-    if rc != 0:
-        return None
-    return _parse_peers_dump(stdout.splitlines()[1:])
-
-
-async def get_peer(iface: str, public_key: str) -> dict | None:
-    peers = await list_peers(iface)
-    if peers is None:
-        return None
-    return next((p for p in peers if p["public_key"] == public_key), None)
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _read_conf_address(name: str) -> str | None:
-    conf = _conf_path(name)
-    if not conf.exists():
-        return None
-    addresses: list[str] = []
-    for line in conf.read_text().splitlines():
-        stripped = line.strip()
-        key, sep, value = stripped.partition("=")
-        if sep and key.strip().lower() == "address":
-            addresses.append(value.strip())
-    return ", ".join(addresses) if addresses else None
-
-
-def _parse_peers_dump(lines: list[str]) -> list[dict]:
-    peers = []
-    for line in lines:
-        parts = line.split("\t")
-        if len(parts) < 8:
-            continue
-        try:
-            peers.append(
-                {
-                    "public_key": parts[0],
-                    "preshared_key": parts[1] if parts[1] != "(none)" else None,
-                    "endpoint": parts[2] if parts[2] != "(none)" else None,
-                    "allowed_ips": parts[3] if parts[3] != "(none)" else None,
-                    "latest_handshake": int(parts[4]) if parts[4] != "0" else None,
-                    "transfer_rx": int(parts[5]),
-                    "transfer_tx": int(parts[6]),
-                    "persistent_keepalive": int(parts[7]) if parts[7] != "off" else None,
-                }
-            )
-        except (ValueError, IndexError):
-            logger.warning("skipping malformed peer dump line: %s", line)
-    return peers
