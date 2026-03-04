@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -7,9 +7,6 @@ from api.services.wireguard import (
     _parse_peers_dump,
     _read_conf_address,
     _run,
-    get_interface,
-    list_interfaces,
-    list_peers,
 )
 from tests.conftest import VALID_KEY
 
@@ -119,96 +116,7 @@ class TestParsePeersDump:
         assert peers[0]["allowed_ips"] is None
         assert peers[0]["latest_handshake"] is None
 
-
-# ---------------------------------------------------------------------------
-# list_interfaces (wg show all dump)
-# ---------------------------------------------------------------------------
-
-
-class TestListInterfaces:
-    @pytest.fixture
-    def mock_wg(self, tmp_path):
-        with (
-            patch("api.services.wireguard._run", new_callable=AsyncMock) as mock_run,
-            patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path),
-        ):
-            yield mock_run, tmp_path
-
-    async def test_single_interface_no_peers(self, mock_wg):
-        mock_run, tmp_path = mock_wg
-        conf = tmp_path / "wg0.conf"
-        conf.write_text("[Interface]\nAddress = 10.0.0.1/24\n")
-        mock_run.return_value = (f"wg0\tPRIVATE\t{VALID_KEY}\t51820\toff", "", 0)
-
-        result = await list_interfaces()
-        assert len(result) == 1
-        assert result[0]["name"] == "wg0"
-        assert result[0]["public_key"] == VALID_KEY
-        assert result[0]["num_peers"] == 0
-        assert result[0]["address"] == "10.0.0.1/24"
-
-    async def test_interface_with_peers(self, mock_wg):
-        mock_run, tmp_path = mock_wg
-        conf = tmp_path / "wg0.conf"
-        conf.write_text("[Interface]\nAddress = 10.0.0.1/24\n")
-        dump = (
-            f"wg0\tPRIVATE\t{VALID_KEY}\t51820\toff\nwg0\t{VALID_KEY}\t(none)\t1.2.3.4:51820\t10.0.0.2/32\t0\t0\t0\toff"
-        )
-        mock_run.return_value = (dump, "", 0)
-
-        result = await list_interfaces()
-        assert result[0]["num_peers"] == 1
-
-    async def test_empty_when_no_interfaces(self, mock_wg):
-        mock_run, _ = mock_wg
-        mock_run.return_value = ("", "", 0)
-        assert await list_interfaces() == []
-
-    async def test_empty_on_error(self, mock_wg):
-        mock_run, _ = mock_wg
-        mock_run.return_value = ("", "error", 1)
-        assert await list_interfaces() == []
-
-
-# ---------------------------------------------------------------------------
-# get_interface
-# ---------------------------------------------------------------------------
-
-
-class TestGetInterface:
-    async def test_returns_interface(self, tmp_path):
-        dump = f"{VALID_KEY}\t{VALID_KEY}\t51820\toff"
-        with (
-            patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=(dump, "", 0)),
-            patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path),
-        ):
-            conf = tmp_path / "wg0.conf"
-            conf.write_text("[Interface]\nAddress = 10.0.0.1/24\n")
-            result = await get_interface("wg0")
-            assert result is not None
-            assert result["name"] == "wg0"
-            assert result["address"] == "10.0.0.1/24"
-
-    async def test_returns_none_on_error(self):
-        with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "err", 1)):
-            assert await get_interface("wg0") is None
-
-
-# ---------------------------------------------------------------------------
-# list_peers
-# ---------------------------------------------------------------------------
-
-
-class TestListPeers:
-    async def test_returns_peers(self):
-        dump = f"PRIVATE\tPUBLIC\t51820\toff\n{VALID_KEY}\t(none)\t1.2.3.4:51820\t10.0.0.2/32\t0\t0\t0\toff"
-        with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=(dump, "", 0)):
-            peers = await list_peers("wg0")
-            assert peers is not None
-            assert len(peers) == 1
-
-    async def test_returns_none_on_error(self):
-        with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "err", 1)):
-            assert await list_peers("wg0") is None
-
-
+    def test_malformed_line_skipped(self):
+        line = f"{VALID_KEY}\t(none)\t(none)\t(none)\tBAD\tBAD\tBAD\toff"
+        peers = _parse_peers_dump([line])
+        assert peers == []

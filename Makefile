@@ -1,37 +1,62 @@
-.PHONY: install run install-dev dev lint format test type build up down logs
+-include .env
+export
 
-install:
+.PHONY: help install run install-dev dev lint format test type check clean build up down logs
+
+help: ## Show this help
+	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
+
+# ---------------------------------------------------------------------------
+# Native / Bare metal
+# ---------------------------------------------------------------------------
+
+install: ## Install the application
 	pip install .
 
-run:
-	uvicorn api.main:app --host 0.0.0.0 --port 8000
+run: ## Run the API server
+	uvicorn api.main:app --host 0.0.0.0 --port $(WG_API_PORT)
 
-install-dev:
+# ---------------------------------------------------------------------------
+# Development
+# ---------------------------------------------------------------------------
+
+install-dev: ## Install with dev dependencies (editable)
 	pip install -e ".[dev]"
 
-dev:
-	uvicorn api.main:app --reload --host 127.0.0.1 --port 8000
+dev: ## Run with hot reload (localhost only)
+	uvicorn api.main:app --reload --host 127.0.0.1 --port $(WG_API_PORT)
 
-lint:
+lint: ## Run linter and format check
 	ruff check .
+	ruff format --check .
 
-format:
+format: ## Auto-format code
 	ruff format .
 
-test:
+test: ## Run tests
 	pytest -v
 
-type:
+type: ## Run type checker
 	mypy api
 
-build:
+check: lint type test ## Run all checks (lint + type + test)
+
+clean: ## Remove build artifacts and caches
+	rm -rf build/ dist/ *.egg-info .mypy_cache .pytest_cache
+	find . -type d -name __pycache__ -exec rm -rf {} +
+
+# ---------------------------------------------------------------------------
+# Docker
+# ---------------------------------------------------------------------------
+
+build: ## Build Docker image
 	docker compose build
 
-up:
+up: ## Start container (build + detach)
 	docker compose up -d --build
 
-down:
+down: ## Stop container
 	docker compose down
 
-logs:
+logs: ## Follow container logs
 	docker compose logs -f wireguard-api

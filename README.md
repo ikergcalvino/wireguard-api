@@ -6,7 +6,7 @@ The API runs inside a Docker container with `network_mode: host`, giving it dire
 
 ## Features
 
-- **CRUD for interfaces** — create, inspect, delete WireGuard interfaces
+- **CRUD for interfaces** — create, read, update, delete WireGuard interfaces
 - **CRUD for peers** — add, update, remove, and list peers on any interface
 - **Lifecycle actions** — bring interfaces up/down and persist runtime changes
 - **Input validation** — interface names and WireGuard keys are validated with Pydantic
@@ -69,6 +69,7 @@ Interactive docs: `/docs` (Swagger UI) and `/redoc` (ReDoc).
 | `GET`    | `/api/v1/interfaces`             | List active interfaces       |
 | `POST`   | `/api/v1/interfaces`             | Create interface (.conf + up)|
 | `GET`    | `/api/v1/interfaces/{name}`      | Get interface details        |
+| `PUT`    | `/api/v1/interfaces/{name}`      | Update interface config      |
 | `DELETE` | `/api/v1/interfaces/{name}`      | Delete interface (down + rm) |
 | `POST`   | `/api/v1/interfaces/{name}/up`   | Bring interface up           |
 | `POST`   | `/api/v1/interfaces/{name}/down` | Bring interface down         |
@@ -84,17 +85,11 @@ Interactive docs: `/docs` (Swagger UI) and `/redoc` (ReDoc).
 | `PUT`    | `/api/v1/interfaces/{iface}/peers/{public_key}`  | Update peer    |
 | `DELETE` | `/api/v1/interfaces/{iface}/peers/{public_key}`  | Remove peer    |
 
-### Utils
-
-| Method | Path                         | Description         |
-|--------|------------------------------|---------------------|
-| `POST` | `/api/v1/generate-keypair`   | Generate WG keypair |
-
 ### Other
 
 | Method | Path             | Description  |
 |--------|------------------|--------------|
-| `GET`  | `/`              | API info     |
+| `GET`  | `/api/v1`        | API info     |
 | `GET`  | `/api/v1/health` | Health check |
 
 ## Examples
@@ -124,9 +119,6 @@ curl -X POST http://localhost:8000/api/v1/interfaces/wg0/peers \
 curl -X POST http://localhost:8000/api/v1/interfaces/wg0/save \
   -H "X-API-Key: your-secret-api-key"
 
-# Generate a new WireGuard keypair
-curl -X POST http://localhost:8000/api/v1/generate-keypair \
-  -H "X-API-Key: your-secret-api-key"
 ```
 
 ## Configuration
@@ -145,13 +137,16 @@ curl -X POST http://localhost:8000/api/v1/generate-keypair \
 wireguard-api/
 ├── api/
 │   ├── config.py          # Centralized settings (pydantic-settings)
+│   ├── dependencies.py    # Shared FastAPI dependencies (API key auth)
 │   ├── exceptions.py      # Global exception handlers
-│   ├── main.py            # FastAPI app, middleware, auth
+│   ├── logging.py         # Logging configuration (dictConfig)
+│   ├── main.py            # FastAPI app, middleware, routes
 │   ├── models/
-│   │   ├── constants.py   # Shared validation patterns
-│   │   ├── interfaces.py  # InterfaceCreate & Interface models
-│   │   └── peers.py       # PeerCreate, PeerUpdate & Peer models
+│   │   ├── __init__.py    # Shared validation patterns
+│   │   ├── interfaces.py  # Interface model
+│   │   └── peers.py       # Peer model
 │   ├── routers/
+│   │   ├── __init__.py    # Shared path parameter types
 │   │   ├── interfaces.py  # Interface endpoints
 │   │   └── peers.py       # Peer endpoints
 │   └── services/
@@ -194,7 +189,7 @@ The Docker container runs with `network_mode: host` and `NET_ADMIN` capability, 
 ## Security
 
 - All subprocess calls use `create_subprocess_exec` with argument lists (no shell injection)
-- Interface names validated against `^[a-zA-Z0-9_-]{1,15}$`
+- Interface names validated against `^[a-zA-Z0-9_=+.-]{1,15}$`
 - WireGuard keys validated as proper base64-encoded 32-byte keys
 - Preshared keys passed via stdin to avoid process list exposure
 - Container requires only `NET_ADMIN` capability

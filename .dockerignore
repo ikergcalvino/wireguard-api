@@ -3,4 +3,5 @@
 
 # Allow only what the Dockerfile needs
 !pyproject.toml
+!README.md
 !api/

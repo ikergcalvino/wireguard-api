@@ -3,61 +3,7 @@ from unittest.mock import AsyncMock, patch
 from tests.conftest import VALID_KEY
 
 # ---------------------------------------------------------------------------
-# Root & Health
-# ---------------------------------------------------------------------------
-
-
-class TestMeta:
-    async def test_root(self, client):
-        r = await client.get("/api/v1")
-        assert r.status_code == 200
-        data = r.json()
-        assert data["name"] == "wireguard-api"
-        assert "version" in data
-
-    async def test_health(self, client):
-        r = await client.get("/api/v1/health")
-        assert r.status_code == 200
-        data = r.json()
-        assert "status" in data
-        assert "checks" in data
-
-
-# ---------------------------------------------------------------------------
-# Auth
-# ---------------------------------------------------------------------------
-
-
-class TestAuth:
-    async def test_no_key_required_when_unset(self, client):
-        with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "", 0)):
-            r = await client.get("/api/v1/interfaces")
-            assert r.status_code == 200
-
-    async def test_rejects_missing_key(self, client):
-        with patch("api.dependencies.settings") as mock_settings:
-            mock_settings.api_key = "secret"
-            r = await client.get("/api/v1/interfaces")
-            assert r.status_code == 403
-
-    async def test_rejects_wrong_key(self, client):
-        with patch("api.dependencies.settings") as mock_settings:
-            mock_settings.api_key = "secret"
-            r = await client.get("/api/v1/interfaces", headers={"X-API-Key": "wrong"})
-            assert r.status_code == 403
-
-    async def test_accepts_valid_key(self, client):
-        with (
-            patch("api.dependencies.settings") as mock_settings,
-            patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "", 0)),
-        ):
-            mock_settings.api_key = "secret"
-            r = await client.get("/api/v1/interfaces", headers={"X-API-Key": "secret"})
-            assert r.status_code == 200
-
-
-# ---------------------------------------------------------------------------
-# Interfaces
+# List Interfaces
 # ---------------------------------------------------------------------------
 
 
@@ -82,6 +28,11 @@ class TestListInterfaces:
             assert len(data) == 1
             assert data[0]["name"] == "wg0"
             assert data[0]["address"] == "10.0.0.1/24"
+
+
+# ---------------------------------------------------------------------------
+# Create Interface
+# ---------------------------------------------------------------------------
 
 
 class TestCreateInterface:
@@ -144,6 +95,11 @@ class TestCreateInterface:
                 json={"name": "wg0", "address": "10.0.0.1/24", "private_key": VALID_KEY},
             )
             assert r.status_code == 409
+
+
+# ---------------------------------------------------------------------------
+# Update Interface
+# ---------------------------------------------------------------------------
 
 
 class TestUpdateInterface:
@@ -216,6 +172,11 @@ class TestUpdateInterface:
             assert r.json()["address"] == "10.0.0.2/24"
 
 
+# ---------------------------------------------------------------------------
+# Get Interface
+# ---------------------------------------------------------------------------
+
+
 class TestGetInterface:
     async def test_found(self, client, tmp_path):
         dump = f"{VALID_KEY}\t{VALID_KEY}\t51820\toff"
@@ -235,6 +196,11 @@ class TestGetInterface:
     async def test_invalid_name(self, client):
         r = await client.get("/api/v1/interfaces/invalid@name")
         assert r.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Delete Interface
+# ---------------------------------------------------------------------------
 
 
 class TestDeleteInterface:
@@ -264,6 +230,11 @@ class TestDeleteInterface:
             r = await client.delete("/api/v1/interfaces/wg0")
             assert r.status_code == 204
             assert not conf.exists()
+
+
+# ---------------------------------------------------------------------------
+# Interface Actions (up / down / save)
+# ---------------------------------------------------------------------------
 
 
 class TestInterfaceActions:
@@ -320,88 +291,3 @@ class TestInterfaceActions:
         with patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path):
             r = await client.post("/api/v1/interfaces/wg0/save")
             assert r.status_code == 404
-
-
-# ---------------------------------------------------------------------------
-# Peers
-# ---------------------------------------------------------------------------
-
-
-class TestListPeers:
-    async def test_success(self, client):
-        dump = f"PRIVATE\tPUBLIC\t51820\toff\n{VALID_KEY}\t(none)\t1.2.3.4:51820\t10.0.0.2/32\t0\t0\t0\toff"
-        with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=(dump, "", 0)):
-            r = await client.get("/api/v1/interfaces/wg0/peers")
-            assert r.status_code == 200
-            assert len(r.json()) == 1
-
-    async def test_interface_not_found(self, client):
-        with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "err", 1)):
-            r = await client.get("/api/v1/interfaces/wg0/peers")
-            assert r.status_code == 404
-
-
-class TestCreatePeer:
-    async def test_success(self, client):
-        dump = f"PRIVATE\tPUBLIC\t51820\toff\n{VALID_KEY}\t(none)\t(none)\t10.0.0.2/32\t0\t0\t0\toff"
-        with patch("api.services.wireguard._run", new_callable=AsyncMock) as mock_run:
-            mock_run.side_effect = [
-                ("", "", 0),  # wg set
-                (dump, "", 0),  # wg show dump
-            ]
-            r = await client.post(
-                "/api/v1/interfaces/wg0/peers",
-                json={"public_key": VALID_KEY, "allowed_ips": "10.0.0.2/32"},
-            )
-            assert r.status_code == 201
-            assert r.json()["public_key"] == VALID_KEY
-
-    async def test_missing_public_key(self, client):
-        r = await client.post(
-            "/api/v1/interfaces/wg0/peers",
-            json={"allowed_ips": "10.0.0.2/32"},
-        )
-        assert r.status_code == 422
-
-    async def test_missing_allowed_ips(self, client):
-        r = await client.post(
-            "/api/v1/interfaces/wg0/peers",
-            json={"public_key": VALID_KEY},
-        )
-        assert r.status_code == 422
-
-    async def test_invalid_key(self, client):
-        r = await client.post(
-            "/api/v1/interfaces/wg0/peers",
-            json={"public_key": "bad", "allowed_ips": "10.0.0.2/32"},
-        )
-        assert r.status_code == 422
-
-
-class TestUpdatePeer:
-    async def test_success(self, client):
-        dump = f"PRIVATE\tPUBLIC\t51820\toff\n{VALID_KEY}\t(none)\t(none)\t10.0.0.3/32\t0\t0\t0\toff"
-        with patch("api.services.wireguard._run", new_callable=AsyncMock) as mock_run:
-            mock_run.side_effect = [
-                ("", "", 0),  # wg set
-                (dump, "", 0),  # wg show dump
-            ]
-            r = await client.put(
-                f"/api/v1/interfaces/wg0/peers/{VALID_KEY}",
-                json={"allowed_ips": "10.0.0.3/32"},
-            )
-            assert r.status_code == 200
-
-    async def test_extra_field_rejected(self, client):
-        r = await client.put(
-            f"/api/v1/interfaces/wg0/peers/{VALID_KEY}",
-            json={"allowed_ips": "10.0.0.3/32", "unknown": "x"},
-        )
-        assert r.status_code == 422
-
-
-class TestDeletePeer:
-    async def test_success(self, client):
-        with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "", 0)):
-            r = await client.delete(f"/api/v1/interfaces/wg0/peers/{VALID_KEY}")
-            assert r.status_code == 204

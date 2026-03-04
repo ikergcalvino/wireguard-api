@@ -6,7 +6,7 @@ RUN apk add --no-cache wireguard-tools iproute2
 
 WORKDIR /app
 
-COPY pyproject.toml .
+COPY pyproject.toml README.md ./
 COPY api/ api/
 RUN pip install --no-cache-dir --no-compile .
 
