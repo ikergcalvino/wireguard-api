@@ -22,6 +22,7 @@ class Interface(BaseModel):
     public_key: str | None = Field(
         None,
         description="The corresponding base64 public key, derived at runtime via wg pubkey.",
+        json_schema_extra={"readOnly": True},
     )
     listen_port: int | None = Field(
         None,
@@ -91,14 +92,25 @@ class Interface(BaseModel):
         "will therefore be overwritten.",
     )
 
-    # Runtime fields (from wg show)
-    num_peers: int = Field(0, description="Number of peers currently configured on this interface.")
+    # Runtime fields (from wg show) — read-only
+    num_peers: int = Field(
+        0,
+        description="Number of peers currently configured on this interface.",
+        json_schema_extra={"readOnly": True},
+    )
 
     @field_validator("name")
     @classmethod
     def validate_name(cls, v: str) -> str:
         if not IFACE_NAME_PATTERN.match(v):
             raise ValueError("Interface name must be 1-15 chars matching [a-zA-Z0-9_=+.-]")
+        return v
+
+    @field_validator("private_key", "public_key")
+    @classmethod
+    def validate_key(cls, v: str | None) -> str | None:
+        if v is not None and not WG_KEY_PATTERN.match(v):
+            raise ValueError("Invalid WireGuard key format")
         return v
 
     @field_validator("address")
@@ -110,11 +122,4 @@ class Interface(BaseModel):
                     ip_interface(addr.strip())
                 except ValueError:
                     raise ValueError(f"Invalid IP address/CIDR notation: {addr.strip()}") from None
-        return v
-
-    @field_validator("private_key", "public_key")
-    @classmethod
-    def validate_key(cls, v: str | None) -> str | None:
-        if v is not None and not WG_KEY_PATTERN.match(v):
-            raise ValueError("Invalid WireGuard key format")
         return v

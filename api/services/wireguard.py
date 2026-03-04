@@ -59,19 +59,12 @@ def _require_conf(name: str) -> Path:
 # ---------------------------------------------------------------------------
 
 
-async def create_interface(iface: Interface) -> tuple[str, int]:
-    if not iface.private_key:
-        raise ValueError("private_key is required to create an interface")
-    if not iface.address:
-        raise ValueError("address is required to create an interface")
-
-    conf = _conf_path(iface.name)
-
-    lines = [
-        "[Interface]",
-        f"Address = {iface.address}",
-        f"PrivateKey = {iface.private_key}",
-    ]
+def _build_conf_content(iface: Interface) -> bytes:
+    lines = ["[Interface]"]
+    if iface.address:
+        lines.append(f"Address = {iface.address}")
+    if iface.private_key:
+        lines.append(f"PrivateKey = {iface.private_key}")
     if iface.listen_port is not None:
         lines.append(f"ListenPort = {iface.listen_port}")
     if iface.fw_mark:
@@ -92,8 +85,17 @@ async def create_interface(iface: Interface) -> tuple[str, int]:
         lines.append(f"PostDown = {iface.post_down}")
     if iface.save_config is not None:
         lines.append(f"SaveConfig = {'true' if iface.save_config else 'false'}")
+    return ("\n".join(lines) + "\n").encode()
 
-    content = ("\n".join(lines) + "\n").encode()
+
+async def create_interface(iface: Interface) -> tuple[str, int]:
+    if not iface.private_key:
+        raise ValueError("private_key is required to create an interface")
+    if not iface.address:
+        raise ValueError("address is required to create an interface")
+
+    conf = _conf_path(iface.name)
+    content = _build_conf_content(iface)
     try:
         fd = os.open(str(conf), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         try:
@@ -110,13 +112,27 @@ async def create_interface(iface: Interface) -> tuple[str, int]:
     return stderr, rc
 
 
+async def update_interface(name: str, iface: Interface) -> tuple[str, int]:
+    if not iface.private_key:
+        raise ValueError("private_key is required")
+    if not iface.address:
+        raise ValueError("address is required")
+
+    conf = _require_conf(name)
+    content = _build_conf_content(iface)
+    conf.write_bytes(content)
+    conf.chmod(0o600)
+
+    logger.info("updating interface %s", name)
+    return "", 0
+
+
 async def delete_interface(name: str) -> tuple[str, int]:
     conf = _require_conf(name)
     logger.info("deleting interface %s", name)
     _, stderr, rc = await _run(["wg-quick", "down", name])
-    if rc == 0:
-        conf.unlink(missing_ok=True)
-    return stderr, rc
+    conf.unlink(missing_ok=True)
+    return stderr if rc != 0 else "", 0
 
 
 async def interface_up(name: str) -> tuple[str, int]:
@@ -173,6 +189,8 @@ async def get_interface(name: str) -> dict | None:
     if not lines:
         return None
 
+    # wg show dump: private_key \t public_key \t listen_port \t fwmark
+    # parts[0] is private_key — intentionally omitted from response for security
     parts = lines[0].split("\t")
     return {
         "name": name,
@@ -258,16 +276,19 @@ def _parse_peers_dump(lines: list[str]) -> list[dict]:
         parts = line.split("\t")
         if len(parts) < 8:
             continue
-        peers.append(
-            {
-                "public_key": parts[0],
-                "preshared_key": parts[1] if parts[1] != "(none)" else None,
-                "endpoint": parts[2] if parts[2] != "(none)" else None,
-                "allowed_ips": parts[3] if parts[3] != "(none)" else None,
-                "latest_handshake": int(parts[4]) if parts[4] != "0" else None,
-                "transfer_rx": int(parts[5]),
-                "transfer_tx": int(parts[6]),
-                "persistent_keepalive": int(parts[7]) if parts[7] != "off" else None,
-            }
-        )
+        try:
+            peers.append(
+                {
+                    "public_key": parts[0],
+                    "preshared_key": parts[1] if parts[1] != "(none)" else None,
+                    "endpoint": parts[2] if parts[2] != "(none)" else None,
+                    "allowed_ips": parts[3] if parts[3] != "(none)" else None,
+                    "latest_handshake": int(parts[4]) if parts[4] != "0" else None,
+                    "transfer_rx": int(parts[5]),
+                    "transfer_tx": int(parts[6]),
+                    "persistent_keepalive": int(parts[7]) if parts[7] != "off" else None,
+                }
+            )
+        except (ValueError, IndexError):
+            logger.warning("skipping malformed peer dump line: %s", line)
     return peers

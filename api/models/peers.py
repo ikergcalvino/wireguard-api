@@ -1,3 +1,5 @@
+from ipaddress import ip_network
+
 from pydantic import BaseModel, Field, field_validator
 
 from api.models import WG_KEY_PATTERN
@@ -41,18 +43,21 @@ class Peer(BaseModel):
         "By default or when unspecified, this option is off. Most users will not need this. Optional.",
     )
 
-    # Runtime fields (from wg show)
+    # Runtime fields (from wg show) — read-only
     latest_handshake: int | None = Field(
         None,
         description="Unix timestamp of the most recent handshake with this peer.",
+        json_schema_extra={"readOnly": True},
     )
     transfer_rx: int | None = Field(
         None,
         description="Number of bytes received from this peer.",
+        json_schema_extra={"readOnly": True},
     )
     transfer_tx: int | None = Field(
         None,
         description="Number of bytes transmitted to this peer.",
+        json_schema_extra={"readOnly": True},
     )
 
     @field_validator("public_key", "preshared_key")
@@ -60,4 +65,15 @@ class Peer(BaseModel):
     def validate_key(cls, v: str | None) -> str | None:
         if v is not None and not WG_KEY_PATTERN.match(v):
             raise ValueError("Invalid WireGuard key format")
+        return v
+
+    @field_validator("allowed_ips")
+    @classmethod
+    def validate_allowed_ips(cls, v: str | None) -> str | None:
+        if v is not None:
+            for cidr in v.split(","):
+                try:
+                    ip_network(cidr.strip(), strict=False)
+                except ValueError:
+                    raise ValueError(f"Invalid CIDR notation: {cidr.strip()}") from None
         return v

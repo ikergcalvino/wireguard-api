@@ -146,6 +146,76 @@ class TestCreateInterface:
             assert r.status_code == 409
 
 
+class TestUpdateInterface:
+    async def test_update_success(self, client, tmp_path):
+        conf = tmp_path / "wg0.conf"
+        conf.write_text("[Interface]\nAddress = 10.0.0.1/24\nPrivateKey = old\n")
+        get_dump = f"{VALID_KEY}\t{VALID_KEY}\t51820\toff"
+        with (
+            patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=(get_dump, "", 0)),
+            patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path),
+        ):
+            r = await client.put(
+                "/api/v1/interfaces/wg0",
+                json={"name": "wg0", "address": "10.0.0.2/24", "private_key": VALID_KEY},
+            )
+            assert r.status_code == 200
+            assert r.json()["name"] == "wg0"
+            content = conf.read_text()
+            assert "10.0.0.2/24" in content
+
+    async def test_update_not_found(self, client, tmp_path):
+        with patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path):
+            r = await client.put(
+                "/api/v1/interfaces/wg0",
+                json={"name": "wg0", "address": "10.0.0.1/24", "private_key": VALID_KEY},
+            )
+            assert r.status_code == 404
+
+    async def test_update_missing_private_key(self, client, tmp_path):
+        conf = tmp_path / "wg0.conf"
+        conf.write_text("[Interface]\n")
+        with patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path):
+            r = await client.put(
+                "/api/v1/interfaces/wg0",
+                json={"name": "wg0", "address": "10.0.0.1/24"},
+            )
+            assert r.status_code == 400
+
+    async def test_update_missing_address(self, client, tmp_path):
+        conf = tmp_path / "wg0.conf"
+        conf.write_text("[Interface]\n")
+        with patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path):
+            r = await client.put(
+                "/api/v1/interfaces/wg0",
+                json={"name": "wg0", "private_key": VALID_KEY},
+            )
+            assert r.status_code == 400
+
+    async def test_update_name_mismatch(self, client):
+        r = await client.put(
+            "/api/v1/interfaces/wg0",
+            json={"name": "wg1", "address": "10.0.0.1/24", "private_key": VALID_KEY},
+        )
+        assert r.status_code == 422
+        assert "name" in r.json()["detail"].lower()
+
+    async def test_update_interface_down_returns_body(self, client, tmp_path):
+        conf = tmp_path / "wg0.conf"
+        conf.write_text("[Interface]\nAddress = 10.0.0.1/24\nPrivateKey = old\n")
+        with (
+            patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "not running", 1)),
+            patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path),
+        ):
+            r = await client.put(
+                "/api/v1/interfaces/wg0",
+                json={"name": "wg0", "address": "10.0.0.2/24", "private_key": VALID_KEY},
+            )
+            assert r.status_code == 200
+            assert r.json()["name"] == "wg0"
+            assert r.json()["address"] == "10.0.0.2/24"
+
+
 class TestGetInterface:
     async def test_found(self, client, tmp_path):
         dump = f"{VALID_KEY}\t{VALID_KEY}\t51820\toff"
@@ -184,16 +254,16 @@ class TestDeleteInterface:
             r = await client.delete("/api/v1/interfaces/wg0")
             assert r.status_code == 404
 
-    async def test_delete_preserves_conf_on_failure(self, client, tmp_path):
+    async def test_delete_when_interface_down(self, client, tmp_path):
         conf = tmp_path / "wg0.conf"
         conf.write_text("[Interface]\n")
         with (
-            patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "error", 1)),
+            patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "not running", 1)),
             patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path),
         ):
             r = await client.delete("/api/v1/interfaces/wg0")
-            assert r.status_code == 400
-            assert conf.exists()
+            assert r.status_code == 204
+            assert not conf.exists()
 
 
 class TestInterfaceActions:
@@ -285,6 +355,13 @@ class TestCreatePeer:
             )
             assert r.status_code == 201
             assert r.json()["public_key"] == VALID_KEY
+
+    async def test_missing_public_key(self, client):
+        r = await client.post(
+            "/api/v1/interfaces/wg0/peers",
+            json={"allowed_ips": "10.0.0.2/32"},
+        )
+        assert r.status_code == 422
 
     async def test_missing_allowed_ips(self, client):
         r = await client.post(

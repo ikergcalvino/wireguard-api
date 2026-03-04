@@ -28,6 +28,16 @@ async def get_interface(name: IfaceName):
     return data
 
 
+@router.put("/{name}", response_model=Interface)
+async def update_interface(name: IfaceName, body: Interface):
+    if body.name != name:
+        raise HTTPException(status_code=422, detail="Body name does not match URL name")
+    stderr, rc = await wg.update_interface(name, body)
+    if rc != 0:
+        raise HTTPException(status_code=400, detail=stderr)
+    return await wg.get_interface(name) or body
+
+
 @router.delete("/{name}", status_code=204)
 async def delete_interface(name: IfaceName):
     stderr, rc = await wg.delete_interface(name)

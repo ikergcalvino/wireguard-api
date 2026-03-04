@@ -20,11 +20,13 @@ async def list_peers(iface: IfaceName):
 
 @router.post("", response_model=Peer, status_code=201)
 async def create_peer(iface: IfaceName, body: Peer):
+    if not body.public_key:
+        raise HTTPException(status_code=422, detail="public_key is required")
     if not body.allowed_ips:
         raise HTTPException(status_code=422, detail="allowed_ips is required")
     stderr, rc = await wg.set_peer(
         iface=iface,
-        public_key=body.public_key or "",
+        public_key=body.public_key,
         allowed_ips=body.allowed_ips,
         endpoint=body.endpoint,
         preshared_key=body.preshared_key,
@@ -32,7 +34,7 @@ async def create_peer(iface: IfaceName, body: Peer):
     )
     if rc != 0:
         raise HTTPException(status_code=400, detail=stderr)
-    return await wg.get_peer(iface, body.public_key or "")
+    return await wg.get_peer(iface, body.public_key)
 
 
 @router.get("/{public_key}", response_model=Peer)
@@ -50,6 +52,7 @@ async def update_peer(iface: IfaceName, public_key: WgKey, body: Peer):
         public_key=public_key,
         allowed_ips=body.allowed_ips,
         endpoint=body.endpoint,
+        preshared_key=body.preshared_key,
         persistent_keepalive=body.persistent_keepalive,
     )
     if rc != 0:

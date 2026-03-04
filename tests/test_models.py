@@ -130,6 +130,22 @@ class TestPeer:
         with pytest.raises(ValidationError, match="key format"):
             Peer(public_key=VALID_KEY, preshared_key=INVALID_KEY)
 
+    def test_valid_allowed_ips(self):
+        peer = Peer(public_key=VALID_KEY, allowed_ips="10.0.0.2/32")
+        assert peer.allowed_ips == "10.0.0.2/32"
+
+    def test_comma_separated_allowed_ips(self):
+        peer = Peer(public_key=VALID_KEY, allowed_ips="10.0.0.0/24, fd00::/64")
+        assert peer.allowed_ips == "10.0.0.0/24, fd00::/64"
+
+    def test_catch_all_allowed_ips(self):
+        peer = Peer(public_key=VALID_KEY, allowed_ips="0.0.0.0/0, ::/0")
+        assert peer.allowed_ips == "0.0.0.0/0, ::/0"
+
+    def test_invalid_allowed_ips(self):
+        with pytest.raises(ValidationError, match="CIDR"):
+            Peer(public_key=VALID_KEY, allowed_ips="not-a-cidr")
+
     def test_extra_fields_forbidden(self):
         with pytest.raises(ValidationError, match="extra"):
             Peer(public_key=VALID_KEY, unknown="x")
