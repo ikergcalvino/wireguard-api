@@ -7,6 +7,7 @@ from api.models.peers import Peer
 from api.services.wireguard import (
     _build_conf_content,
     _conf_path,
+    _parse_conf_file,
     _parse_peers_dump,
     _read_conf_address,
     _run,
@@ -201,3 +202,89 @@ class TestBuildConfContent:
         iface = Interface(name="wg0", address="10.0.0.1/24", private_key=VALID_KEY)
         content = _build_conf_content(iface).decode()
         assert content.endswith("\n")
+
+
+# ---------------------------------------------------------------------------
+# _parse_conf_file
+# ---------------------------------------------------------------------------
+
+
+class TestParseConfFile:
+    def test_returns_none_when_missing(self, tmp_path):
+        with patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path):
+            assert _parse_conf_file("wg0") is None
+
+    def test_parses_interface(self, tmp_path):
+        conf = tmp_path / "wg0.conf"
+        conf.write_text("[Interface]\nAddress = 10.0.0.1/24\nListenPort = 51820\n")
+        with patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path):
+            result = _parse_conf_file("wg0")
+            assert result is not None
+            iface, peers = result
+            assert iface.name == "wg0"
+            assert iface.address == "10.0.0.1/24"
+            assert iface.listen_port == 51820
+            assert iface.status == "down"
+            assert peers == []
+
+    def test_parses_peers(self, tmp_path):
+        conf = tmp_path / "wg0.conf"
+        conf.write_text(
+            "[Interface]\nAddress = 10.0.0.1/24\n\n"
+            f"[Peer]\nPublicKey = {VALID_KEY}\nAllowedIPs = 10.0.0.2/32\n"
+            f"Endpoint = 1.2.3.4:51820\nPersistentKeepalive = 25\n"
+        )
+        with patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path):
+            result = _parse_conf_file("wg0")
+            assert result is not None
+            iface, peers = result
+            assert iface.num_peers == 1
+            assert len(peers) == 1
+            assert peers[0].public_key == VALID_KEY
+            assert peers[0].allowed_ips == "10.0.0.2/32"
+            assert peers[0].endpoint == "1.2.3.4:51820"
+            assert peers[0].persistent_keepalive == 25
+
+    def test_parses_multiple_peers(self, tmp_path):
+        conf = tmp_path / "wg0.conf"
+        conf.write_text(
+            "[Interface]\nAddress = 10.0.0.1/24\n\n"
+            f"[Peer]\nPublicKey = {VALID_KEY}\nAllowedIPs = 10.0.0.2/32\n\n"
+            f"[Peer]\nPublicKey = {VALID_KEY}\nAllowedIPs = 10.0.0.3/32\n"
+        )
+        with patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path):
+            result = _parse_conf_file("wg0")
+            assert result is not None
+            iface, peers = result
+            assert iface.num_peers == 2
+            assert len(peers) == 2
+
+    def test_skips_comments_and_blank_lines(self, tmp_path):
+        conf = tmp_path / "wg0.conf"
+        conf.write_text("# Comment\n\n[Interface]\nAddress = 10.0.0.1/24\n")
+        with patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path):
+            result = _parse_conf_file("wg0")
+            assert result is not None
+            assert result[0].address == "10.0.0.1/24"
+
+    def test_parses_all_interface_fields(self, tmp_path):
+        conf = tmp_path / "wg0.conf"
+        conf.write_text(
+            "[Interface]\nAddress = 10.0.0.1/24\nListenPort = 51820\n"
+            "DNS = 1.1.1.1\nMTU = 1420\nTable = auto\n"
+            "PreUp = echo pre\nPostUp = echo post\n"
+            "PreDown = echo predown\nPostDown = echo postdown\n"
+            "SaveConfig = true\n"
+        )
+        with patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path):
+            result = _parse_conf_file("wg0")
+            assert result is not None
+            iface = result[0]
+            assert iface.dns == "1.1.1.1"
+            assert iface.mtu == 1420
+            assert iface.table == "auto"
+            assert iface.pre_up == "echo pre"
+            assert iface.post_up == "echo post"
+            assert iface.pre_down == "echo predown"
+            assert iface.post_down == "echo postdown"
+            assert iface.save_config is True

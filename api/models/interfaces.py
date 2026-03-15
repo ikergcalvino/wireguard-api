@@ -1,4 +1,5 @@
 from ipaddress import ip_interface
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -93,6 +94,11 @@ class Interface(BaseModel):
     )
 
     # Runtime fields (from wg show) — read-only
+    status: Literal["up", "down"] | None = Field(
+        None,
+        description="Whether the interface is currently running ('up') or only exists as a config file ('down').",
+        json_schema_extra={"readOnly": True},
+    )
     num_peers: int = Field(
         0,
         description="Number of peers currently configured on this interface.",

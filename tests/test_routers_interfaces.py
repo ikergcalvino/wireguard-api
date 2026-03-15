@@ -28,6 +28,7 @@ class TestListInterfaces:
             assert len(data) == 1
             assert data[0]["name"] == "wg0"
             assert data[0]["address"] == "10.0.0.1/24"
+            assert data[0]["status"] == "up"
 
 
 # ---------------------------------------------------------------------------
@@ -113,6 +114,7 @@ class TestUpdateInterface:
         ):
             mock_run.side_effect = [
                 ("PRIVATE\tPUBLIC\t51820\toff", "", 0),  # wg show dump (list_peers)
+                ("PRIVATE\tPUBLIC\t51820\toff", "", 0),  # wg show dump (check if up)
                 ("", "", 0),  # wg syncconf
                 (get_dump, "", 0),  # wg show dump (get_interface)
             ]
@@ -167,6 +169,7 @@ class TestUpdateInterface:
         ):
             mock_run.side_effect = [
                 ("PRIVATE\tPUBLIC\t51820\toff", "", 0),  # wg show dump (list_peers)
+                ("PRIVATE\tPUBLIC\t51820\toff", "", 0),  # wg show dump (check if up)
                 ("", "syncconf failed", 1),  # wg syncconf
             ]
             r = await client.put(
@@ -174,23 +177,6 @@ class TestUpdateInterface:
                 json={"name": "wg0", "address": "10.0.0.2/24", "private_key": VALID_KEY},
             )
             assert r.status_code == 400
-
-    async def test_update_get_fails_after_success(self, client, tmp_path):
-        (tmp_path / "wg0.conf").write_text("[Interface]\nAddress = 10.0.0.1/24\nPrivateKey = old\n")
-        with (
-            patch("api.services.wireguard._run", new_callable=AsyncMock) as mock_run,
-            patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path),
-        ):
-            mock_run.side_effect = [
-                ("PRIVATE\tPUBLIC\t51820\toff", "", 0),  # wg show dump (list_peers)
-                ("", "", 0),  # wg syncconf
-                ("", "err", 1),  # wg show dump (get_interface fails)
-            ]
-            r = await client.put(
-                "/api/v1/interfaces/wg0",
-                json={"name": "wg0", "address": "10.0.0.2/24", "private_key": VALID_KEY},
-            )
-            assert r.status_code == 500
 
 
 # ---------------------------------------------------------------------------
@@ -209,8 +195,11 @@ class TestGetInterface:
             assert r.status_code == 200
             assert r.json()["name"] == "wg0"
 
-    async def test_not_found(self, client):
-        with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "err", 1)):
+    async def test_not_found(self, client, tmp_path):
+        with (
+            patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "err", 1)),
+            patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path),
+        ):
             r = await client.get("/api/v1/interfaces/wg0")
             assert r.status_code == 404
 
@@ -241,13 +230,32 @@ class TestDeleteInterface:
             r = await client.delete("/api/v1/interfaces/wg0")
             assert r.status_code == 404
 
-    async def test_delete_when_down_fails(self, client, tmp_path):
+    async def test_delete_down_interface(self, client, tmp_path):
+        conf = tmp_path / "wg0.conf"
+        conf.write_text("[Interface]\nAddress = 10.0.0.1/24\n")
+        with (
+            patch("api.services.wireguard._run", new_callable=AsyncMock) as mock_run,
+            patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path),
+        ):
+            mock_run.side_effect = [
+                ("", "not running", 1),  # wg-quick down fails
+                ("", "err", 1),  # wg show dump — not running
+            ]
+            r = await client.delete("/api/v1/interfaces/wg0")
+            assert r.status_code == 204
+            assert not conf.exists()
+
+    async def test_delete_fails_when_up_but_down_errors(self, client, tmp_path):
         conf = tmp_path / "wg0.conf"
         conf.write_text("[Interface]\n")
         with (
-            patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "not running", 1)),
+            patch("api.services.wireguard._run", new_callable=AsyncMock) as mock_run,
             patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path),
         ):
+            mock_run.side_effect = [
+                ("", "some error", 1),  # wg-quick down fails
+                ("PRIVATE\tPUBLIC\t51820\toff", "", 0),  # wg show — still running
+            ]
             r = await client.delete("/api/v1/interfaces/wg0")
             assert r.status_code == 400
             assert conf.exists()

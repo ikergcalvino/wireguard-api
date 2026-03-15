@@ -74,50 +74,129 @@ def _read_conf_address(name: str) -> str | None:
     return ", ".join(addresses) if addresses else None
 
 
+def _parse_conf_file(name: str) -> tuple[Interface, list[Peer]] | None:
+    conf = _conf_path(name)
+    if not conf.exists():
+        return None
+
+    iface_fields: dict[str, str] = {}
+    peers: list[Peer] = []
+    current_peer: dict[str, str] = {}
+    section: str | None = None
+
+    for line in conf.read_text().splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+
+        if stripped.startswith("["):
+            if section == "Peer" and current_peer:
+                peers.append(_peer_from_conf(current_peer))
+                current_peer = {}
+            section = stripped.strip("[]").strip()
+            continue
+
+        key, sep, value = stripped.partition("=")
+        if not sep:
+            continue
+        key, value = key.strip(), value.strip()
+
+        if section == "Interface":
+            iface_fields[key.lower()] = value
+        elif section == "Peer":
+            current_peer[key.lower()] = value
+
+    if section == "Peer" and current_peer:
+        peers.append(_peer_from_conf(current_peer))
+
+    iface = Interface(
+        name=name,
+        address=iface_fields.get("address"),
+        listen_port=int(iface_fields["listenport"]) if "listenport" in iface_fields else None,
+        fw_mark=iface_fields.get("fwmark"),
+        dns=iface_fields.get("dns"),
+        mtu=int(iface_fields["mtu"]) if "mtu" in iface_fields else None,
+        table=iface_fields.get("table"),
+        pre_up=iface_fields.get("preup"),
+        post_up=iface_fields.get("postup"),
+        pre_down=iface_fields.get("predown"),
+        post_down=iface_fields.get("postdown"),
+        save_config=iface_fields.get("saveconfig", "").lower() == "true" if "saveconfig" in iface_fields else None,
+        status="down",
+        num_peers=len(peers),
+    )
+    return iface, peers
+
+
+def _peer_from_conf(data: dict[str, str]) -> Peer:
+    return Peer(
+        public_key=data.get("publickey"),
+        preshared_key=data.get("presharedkey"),
+        allowed_ips=data.get("allowedips"),
+        endpoint=data.get("endpoint"),
+        persistent_keepalive=int(data["persistentkeepalive"]) if "persistentkeepalive" in data else None,
+    )
+
+
 async def list_interfaces() -> list[Interface]:
-    stdout, _, rc = await _run(["wg", "show", "all", "dump"])
-    if rc != 0 or not stdout:
-        return []
-
+    # 1. Collect running interfaces from kernel
+    up_names: set[str] = set()
     interfaces: dict[str, dict] = {}
-    for line in stdout.splitlines():
-        parts = line.split("\t")
-        name = parts[0]
-        if len(parts) == 5:
-            interfaces[name] = {
-                "name": name,
-                "public_key": parts[2] if parts[2] != "(none)" else None,
-                "listen_port": int(parts[3]) if parts[3].isdigit() else None,
-                "fw_mark": parts[4] if parts[4] != "off" else None,
-                "num_peers": 0,
-                "address": _read_conf_address(name),
-            }
-        elif len(parts) == 9 and name in interfaces:
-            interfaces[name]["num_peers"] += 1
 
-    return [Interface(**data) for data in interfaces.values()]
+    stdout, _, rc = await _run(["wg", "show", "all", "dump"])
+    if rc == 0 and stdout:
+        for line in stdout.splitlines():
+            parts = line.split("\t")
+            name = parts[0]
+            if len(parts) == 5:
+                up_names.add(name)
+                interfaces[name] = {
+                    "name": name,
+                    "public_key": parts[2] if parts[2] != "(none)" else None,
+                    "listen_port": int(parts[3]) if parts[3].isdigit() else None,
+                    "fw_mark": parts[4] if parts[4] != "off" else None,
+                    "num_peers": 0,
+                    "address": _read_conf_address(name),
+                    "status": "up",
+                }
+            elif len(parts) == 9 and name in interfaces:
+                interfaces[name]["num_peers"] += 1
+
+    # 2. Scan .conf files for down interfaces
+    result = [Interface(**data) for data in interfaces.values()]
+    for conf_file in sorted(WG_CONFIG_DIR.glob("*.conf")):
+        iface_name = conf_file.stem
+        if iface_name in up_names:
+            continue
+        parsed = _parse_conf_file(iface_name)
+        if parsed:
+            result.append(parsed[0])
+
+    return result
 
 
 async def get_interface(name: str) -> Interface | None:
     stdout, _, rc = await _run(["wg", "show", name, "dump"])
-    if rc != 0:
-        return None
+    if rc == 0 and stdout:
+        lines = stdout.splitlines()
+        # wg show dump: private_key \t public_key \t listen_port \t fwmark
+        # parts[0] is private_key — intentionally omitted from response for security
+        parts = lines[0].split("\t")
+        return Interface(
+            name=name,
+            public_key=parts[1] if len(parts) > 1 and parts[1] != "(none)" else None,
+            listen_port=int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None,
+            fw_mark=parts[3] if len(parts) > 3 and parts[3] != "off" else None,
+            num_peers=len(lines) - 1,
+            address=_read_conf_address(name),
+            status="up",
+        )
 
-    lines = stdout.splitlines()
-    if not lines:
-        return None
-
-    # wg show dump: private_key \t public_key \t listen_port \t fwmark
-    # parts[0] is private_key — intentionally omitted from response for security
-    parts = lines[0].split("\t")
-    return Interface(
-        name=name,
-        public_key=parts[1] if len(parts) > 1 and parts[1] != "(none)" else None,
-        listen_port=int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None,
-        fw_mark=parts[3] if len(parts) > 3 and parts[3] != "off" else None,
-        num_peers=len(lines) - 1,
-        address=_read_conf_address(name),
-    )
+    # Interface not running — try reading from .conf file
+    parsed = _parse_conf_file(name)
+    if parsed:
+        return parsed[0]
+    return None
 
 
 def _build_conf_content(iface: Interface, peers: list[Peer] | None = None) -> bytes:
@@ -195,22 +274,53 @@ async def update_interface(name: str, iface: Interface) -> tuple[str, int]:
         raise ValueError("address is required")
 
     conf = _require_conf(name)
+
+    # Read current peers (kernel if up, .conf if down) to preserve them
     peers = await list_peers(name)
+
+    # Backup .conf before overwriting
+    backup = conf.with_suffix(".conf.bak")
+    backup.write_bytes(conf.read_bytes())
+    backup.chmod(0o600)
+
     content = _build_conf_content(iface, peers=peers)
-    conf.write_bytes(content)
-    conf.chmod(0o600)
+    try:
+        conf.write_bytes(content)
+        conf.chmod(0o600)
+    except OSError:
+        # Restore backup on write failure
+        backup.rename(conf)
+        raise
 
     logger.info("updating interface %s", name)
-    _, stderr, rc = await _run(["wg", "syncconf", name, str(conf)])
-    return stderr, rc
+
+    # Only syncconf if interface is running
+    _, stderr_check, rc_check = await _run(["wg", "show", name, "dump"])
+    if rc_check == 0:
+        _, stderr, rc = await _run(["wg", "syncconf", name, str(conf)])
+        if rc != 0:
+            # Restore backup on syncconf failure
+            logger.error("syncconf failed for %s, restoring backup", name)
+            backup.rename(conf)
+            return stderr, rc
+
+    backup.unlink(missing_ok=True)
+    return "", 0
 
 
 async def delete_interface(name: str) -> tuple[str, int]:
     conf = _require_conf(name)
     logger.info("deleting interface %s", name)
+
+    # Try to bring down the interface; ignore failure if it's already down
     _, stderr, rc = await _run(["wg-quick", "down", name])
     if rc != 0:
-        return stderr, rc
+        # Check if the interface is actually running
+        _, _, rc_check = await _run(["wg", "show", name, "dump"])
+        if rc_check == 0:
+            # Interface is up but wg-quick down failed — real error
+            return stderr, rc
+
     conf.unlink(missing_ok=True)
     return "", 0
 
@@ -267,9 +377,14 @@ def _parse_peers_dump(lines: list[str]) -> list[Peer]:
 
 async def list_peers(iface: str) -> list[Peer] | None:
     stdout, _, rc = await _run(["wg", "show", iface, "dump"])
-    if rc != 0:
-        return None
-    return _parse_peers_dump(stdout.splitlines()[1:])
+    if rc == 0:
+        return _parse_peers_dump(stdout.splitlines()[1:])
+
+    # Interface not running — try reading peers from .conf file
+    parsed = _parse_conf_file(iface)
+    if parsed:
+        return parsed[1]
+    return None
 
 
 async def get_peer(iface: str, public_key: str) -> Peer | None:
@@ -279,6 +394,14 @@ async def get_peer(iface: str, public_key: str) -> Peer | None:
     return next((p for p in peers if p.public_key == public_key), None)
 
 
+async def _auto_save(iface: str) -> bool:
+    _, stderr, rc = await _run(["wg-quick", "save", iface])
+    if rc != 0:
+        logger.error("auto-save failed for %s: %s", iface, stderr)
+        return False
+    return True
+
+
 async def set_peer(
     iface: str,
     public_key: str,
@@ -286,7 +409,7 @@ async def set_peer(
     endpoint: str | None = None,
     preshared_key: str | None = None,
     persistent_keepalive: int | None = None,
-) -> tuple[str, int]:
+) -> tuple[str, int, bool]:
     if not public_key:
         raise ValueError("public_key is required")
     args = ["wg", "set", iface, "peer", public_key]
@@ -301,10 +424,16 @@ async def set_peer(
     stdin_data = preshared_key.encode() if preshared_key else None
     logger.info("setting peer %s on %s", public_key[:8], iface)
     _, stderr, rc = await _run(args, stdin_data=stdin_data)
-    return stderr, rc
+    saved = False
+    if rc == 0:
+        saved = await _auto_save(iface)
+    return stderr, rc, saved
 
 
-async def delete_peer(iface: str, public_key: str) -> tuple[str, int]:
+async def delete_peer(iface: str, public_key: str) -> tuple[str, int, bool]:
     logger.info("deleting peer %s from %s", public_key[:8], iface)
     _, stderr, rc = await _run(["wg", "set", iface, "peer", public_key, "remove"])
-    return stderr, rc
+    saved = False
+    if rc == 0:
+        saved = await _auto_save(iface)
+    return stderr, rc, saved

@@ -41,6 +41,7 @@ class TestListInterfaces:
         assert result[0].public_key == VALID_KEY
         assert result[0].num_peers == 0
         assert result[0].address == "10.0.0.1/24"
+        assert result[0].status == "up"
 
     async def test_interface_with_peers(self, mock_wg):
         mock_run, tmp_path = mock_wg
@@ -53,6 +54,31 @@ class TestListInterfaces:
 
         result = await list_interfaces()
         assert result[0].num_peers == 1
+        assert result[0].status == "up"
+
+    async def test_shows_down_interfaces(self, mock_wg):
+        mock_run, tmp_path = mock_wg
+        mock_run.return_value = ("", "", 0)
+        conf = tmp_path / "wg0.conf"
+        conf.write_text("[Interface]\nAddress = 10.0.0.1/24\nListenPort = 51820\n")
+
+        result = await list_interfaces()
+        assert len(result) == 1
+        assert result[0].name == "wg0"
+        assert result[0].status == "down"
+        assert result[0].address == "10.0.0.1/24"
+
+    async def test_shows_both_up_and_down(self, mock_wg):
+        mock_run, tmp_path = mock_wg
+        mock_run.return_value = (f"wg0\tPRIVATE\t{VALID_KEY}\t51820\toff", "", 0)
+        (tmp_path / "wg0.conf").write_text("[Interface]\nAddress = 10.0.0.1/24\n")
+        (tmp_path / "wg1.conf").write_text("[Interface]\nAddress = 10.0.1.1/24\n")
+
+        result = await list_interfaces()
+        assert len(result) == 2
+        names = {r.name: r.status for r in result}
+        assert names["wg0"] == "up"
+        assert names["wg1"] == "down"
 
     async def test_empty_when_no_interfaces(self, mock_wg):
         mock_run, _ = mock_wg
@@ -83,10 +109,29 @@ class TestGetInterface:
             assert result is not None
             assert result.name == "wg0"
             assert result.address == "10.0.0.1/24"
+            assert result.status == "up"
 
-    async def test_returns_none_on_error(self):
-        with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "err", 1)):
+    async def test_returns_none_when_no_conf(self, tmp_path):
+        with (
+            patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "err", 1)),
+            patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path),
+        ):
             assert await get_interface("wg0") is None
+
+    async def test_returns_down_interface_from_conf(self, tmp_path):
+        with (
+            patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "err", 1)),
+            patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path),
+        ):
+            conf = tmp_path / "wg0.conf"
+            conf.write_text(
+                f"[Interface]\nAddress = 10.0.0.1/24\n\n[Peer]\nPublicKey = {VALID_KEY}\nAllowedIPs = 10.0.0.2/32\n"
+            )
+            result = await get_interface("wg0")
+            assert result is not None
+            assert result.name == "wg0"
+            assert result.status == "down"
+            assert result.num_peers == 1
 
 
 # ---------------------------------------------------------------------------
@@ -170,12 +215,14 @@ class TestUpdateInterface:
         ):
             mock_run.side_effect = [
                 ("PRIVATE\tPUBLIC\t51820\toff", "", 0),  # wg show dump (list_peers)
+                ("PRIVATE\tPUBLIC\t51820\toff", "", 0),  # wg show dump (check if up)
                 ("", "", 0),  # wg syncconf
             ]
             stderr, rc = await update_interface("wg0", iface)
             assert rc == 0
             content = (tmp_path / "wg0.conf").read_text()
             assert "10.0.0.2/24" in content
+            assert not (tmp_path / "wg0.conf.bak").exists()
 
     async def test_preserves_peers(self, tmp_path):
         (tmp_path / "wg0.conf").write_text("[Interface]\nAddress = 10.0.0.1/24\n")
@@ -187,6 +234,7 @@ class TestUpdateInterface:
         ):
             mock_run.side_effect = [
                 (peer_dump, "", 0),  # wg show dump (list_peers)
+                (peer_dump, "", 0),  # wg show dump (check if up)
                 ("", "", 0),  # wg syncconf
             ]
             stderr, rc = await update_interface("wg0", iface)
@@ -222,6 +270,45 @@ class TestUpdateInterface:
         ):
             await update_interface("wg0", iface)
 
+    async def test_down_interface_preserves_conf_peers(self, tmp_path):
+        (tmp_path / "wg0.conf").write_text(
+            f"[Interface]\nAddress = 10.0.0.1/24\nPrivateKey = old\n\n"
+            f"[Peer]\nPublicKey = {VALID_KEY}\nAllowedIPs = 10.0.0.2/32\n"
+        )
+        iface = Interface(name="wg0", address="10.0.0.1/24", private_key=VALID_KEY, listen_port=51821)
+        with (
+            patch("api.services.wireguard._run", new_callable=AsyncMock) as mock_run,
+            patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path),
+        ):
+            mock_run.side_effect = [
+                ("", "err", 1),  # wg show dump (list_peers fails → reads .conf)
+                ("", "err", 1),  # wg show dump (check if up → skip syncconf)
+            ]
+            stderr, rc = await update_interface("wg0", iface)
+            assert rc == 0
+            content = (tmp_path / "wg0.conf").read_text()
+            assert "[Peer]" in content
+            assert VALID_KEY in content
+            assert "ListenPort = 51821" in content
+
+    async def test_syncconf_failure_restores_backup(self, tmp_path):
+        original = "[Interface]\nAddress = 10.0.0.1/24\nPrivateKey = old\n"
+        (tmp_path / "wg0.conf").write_text(original)
+        iface = Interface(name="wg0", address="10.0.0.2/24", private_key=VALID_KEY)
+        with (
+            patch("api.services.wireguard._run", new_callable=AsyncMock) as mock_run,
+            patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path),
+        ):
+            mock_run.side_effect = [
+                ("PRIVATE\tPUBLIC\t51820\toff", "", 0),  # wg show dump (list_peers)
+                ("PRIVATE\tPUBLIC\t51820\toff", "", 0),  # wg show dump (check if up)
+                ("", "syncconf failed", 1),  # wg syncconf fails
+            ]
+            stderr, rc = await update_interface("wg0", iface)
+            assert rc == 1
+            content = (tmp_path / "wg0.conf").read_text()
+            assert content == original
+
 
 # ---------------------------------------------------------------------------
 # delete_interface
@@ -240,13 +327,32 @@ class TestDeleteInterface:
             assert rc == 0
             assert not conf.exists()
 
-    async def test_returns_error_if_down_fails(self, tmp_path):
+    async def test_deletes_down_interface(self, tmp_path):
+        conf = tmp_path / "wg0.conf"
+        conf.write_text("[Interface]\nAddress = 10.0.0.1/24\n")
+        with (
+            patch("api.services.wireguard._run", new_callable=AsyncMock) as mock_run,
+            patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path),
+        ):
+            mock_run.side_effect = [
+                ("", "not running", 1),  # wg-quick down fails
+                ("", "err", 1),  # wg show dump — not running
+            ]
+            stderr, rc = await delete_interface("wg0")
+            assert rc == 0
+            assert not conf.exists()
+
+    async def test_returns_error_if_up_but_down_fails(self, tmp_path):
         conf = tmp_path / "wg0.conf"
         conf.write_text("[Interface]\n")
         with (
-            patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "not running", 1)),
+            patch("api.services.wireguard._run", new_callable=AsyncMock) as mock_run,
             patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path),
         ):
+            mock_run.side_effect = [
+                ("", "some error", 1),  # wg-quick down fails
+                ("PRIVATE\tPUBLIC\t51820\toff", "", 0),  # wg show dump — still running
+            ]
             stderr, rc = await delete_interface("wg0")
             assert rc == 1
             assert conf.exists()
