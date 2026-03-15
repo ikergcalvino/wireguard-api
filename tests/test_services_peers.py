@@ -31,10 +31,8 @@ class TestListPeers:
             assert await list_peers("wg0") is None
 
     async def test_returns_peers_from_conf_when_down(self, tmp_path):
-        from tests.conftest import VALID_KEY as KEY
-
         (tmp_path / "wg0.conf").write_text(
-            f"[Interface]\nAddress = 10.0.0.1/24\n\n[Peer]\nPublicKey = {KEY}\nAllowedIPs = 10.0.0.2/32\n"
+            f"[Interface]\nAddress = 10.0.0.1/24\n\n[Peer]\nPublicKey = {VALID_KEY}\nAllowedIPs = 10.0.0.2/32\n"
         )
         with (
             patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "err", 1)),
@@ -43,7 +41,7 @@ class TestListPeers:
             peers = await list_peers("wg0")
             assert peers is not None
             assert len(peers) == 1
-            assert peers[0].public_key == KEY
+            assert peers[0].public_key == VALID_KEY
 
 
 # ---------------------------------------------------------------------------

@@ -9,8 +9,9 @@ from api.services.wireguard import (
     _conf_path,
     _parse_conf_file,
     _parse_peers_dump,
-    _read_conf_address,
+    _peer_from_conf,
     _run,
+    _safe_int,
 )
 from tests.conftest import VALID_KEY
 
@@ -48,44 +49,58 @@ class TestConfPath:
 
 
 # ---------------------------------------------------------------------------
-# _read_conf_address
+# _safe_int
 # ---------------------------------------------------------------------------
 
 
-class TestReadConfAddress:
-    def test_reads_address(self, tmp_path):
-        conf = tmp_path / "wg0.conf"
-        conf.write_text("[Interface]\nAddress = 10.0.0.1/24\nListenPort = 51820\n")
-        with patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path):
-            assert _read_conf_address("wg0") == "10.0.0.1/24"
+class TestSafeInt:
+    def test_valid_int(self):
+        assert _safe_int("51820") == 51820
 
-    def test_missing_conf(self, tmp_path):
-        with patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path):
-            assert _read_conf_address("wg0") is None
+    def test_none(self):
+        assert _safe_int(None) is None
 
-    def test_no_address_line(self, tmp_path):
-        conf = tmp_path / "wg0.conf"
-        conf.write_text("[Interface]\nListenPort = 51820\n")
-        with patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path):
-            assert _read_conf_address("wg0") is None
+    def test_invalid_returns_none(self):
+        assert _safe_int("abc") is None
 
-    def test_case_insensitive(self, tmp_path):
-        conf = tmp_path / "wg0.conf"
-        conf.write_text("[Interface]\naddress = 10.0.0.1/24\n")
-        with patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path):
-            assert _read_conf_address("wg0") == "10.0.0.1/24"
+    def test_empty_string_returns_none(self):
+        assert _safe_int("") is None
 
-    def test_multiple_address_lines(self, tmp_path):
-        conf = tmp_path / "wg0.conf"
-        conf.write_text("[Interface]\nAddress = 10.0.0.1/24\nAddress = fd00::1/64\n")
-        with patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path):
-            assert _read_conf_address("wg0") == "10.0.0.1/24, fd00::1/64"
 
-    def test_stops_at_peer_section(self, tmp_path):
-        conf = tmp_path / "wg0.conf"
-        conf.write_text("[Interface]\nAddress = 10.0.0.1/24\n\n[Peer]\nAllowedIPs = 10.0.0.2/32\n")
-        with patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path):
-            assert _read_conf_address("wg0") == "10.0.0.1/24"
+# ---------------------------------------------------------------------------
+# _peer_from_conf
+# ---------------------------------------------------------------------------
+
+
+class TestPeerFromConf:
+    def test_valid_peer(self):
+        data = {"publickey": VALID_KEY, "allowedips": "10.0.0.2/32"}
+        peer = _peer_from_conf(data)
+        assert peer is not None
+        assert peer.public_key == VALID_KEY
+        assert peer.allowed_ips == "10.0.0.2/32"
+
+    def test_missing_public_key_returns_none(self):
+        data = {"allowedips": "10.0.0.2/32"}
+        assert _peer_from_conf(data) is None
+
+    def test_all_fields(self):
+        data = {
+            "publickey": VALID_KEY,
+            "presharedkey": VALID_KEY,
+            "allowedips": "10.0.0.2/32",
+            "endpoint": "1.2.3.4:51820",
+            "persistentkeepalive": "25",
+        }
+        peer = _peer_from_conf(data)
+        assert peer is not None
+        assert peer.persistent_keepalive == 25
+
+    def test_invalid_keepalive_ignored(self):
+        data = {"publickey": VALID_KEY, "persistentkeepalive": "abc"}
+        peer = _peer_from_conf(data)
+        assert peer is not None
+        assert peer.persistent_keepalive is None
 
 
 # ---------------------------------------------------------------------------
@@ -288,3 +303,108 @@ class TestParseConfFile:
             assert iface.pre_down == "echo predown"
             assert iface.post_down == "echo postdown"
             assert iface.save_config is True
+
+    def test_skips_peer_without_public_key(self, tmp_path):
+        conf = tmp_path / "wg0.conf"
+        conf.write_text(
+            "[Interface]\nAddress = 10.0.0.1/24\n\n"
+            "[Peer]\nAllowedIPs = 10.0.0.2/32\n\n"
+            f"[Peer]\nPublicKey = {VALID_KEY}\nAllowedIPs = 10.0.0.3/32\n"
+        )
+        with patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path):
+            result = _parse_conf_file("wg0")
+            assert result is not None
+            iface, peers = result
+            assert iface.num_peers == 1
+            assert len(peers) == 1
+            assert peers[0].allowed_ips == "10.0.0.3/32"
+
+    def test_handles_malformed_listen_port(self, tmp_path):
+        conf = tmp_path / "wg0.conf"
+        conf.write_text("[Interface]\nAddress = 10.0.0.1/24\nListenPort = abc\n")
+        with patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path):
+            result = _parse_conf_file("wg0")
+            assert result is not None
+            assert result[0].listen_port is None
+
+    def test_handles_malformed_mtu(self, tmp_path):
+        conf = tmp_path / "wg0.conf"
+        conf.write_text("[Interface]\nAddress = 10.0.0.1/24\nMTU = not_a_number\n")
+        with patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path):
+            result = _parse_conf_file("wg0")
+            assert result is not None
+            assert result[0].mtu is None
+
+    def test_multi_line_address(self, tmp_path):
+        conf = tmp_path / "wg0.conf"
+        conf.write_text("[Interface]\nAddress = 10.0.0.1/24\nAddress = fd00::1/64\n")
+        with patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path):
+            result = _parse_conf_file("wg0")
+            assert result is not None
+            assert result[0].address == "10.0.0.1/24, fd00::1/64"
+
+    def test_multi_line_dns(self, tmp_path):
+        conf = tmp_path / "wg0.conf"
+        conf.write_text("[Interface]\nAddress = 10.0.0.1/24\nDNS = 1.1.1.1\nDNS = 8.8.8.8\n")
+        with patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path):
+            result = _parse_conf_file("wg0")
+            assert result is not None
+            assert result[0].dns == "1.1.1.1, 8.8.8.8"
+
+    def test_multi_line_hooks(self, tmp_path):
+        conf = tmp_path / "wg0.conf"
+        conf.write_text(
+            "[Interface]\nAddress = 10.0.0.1/24\n"
+            "PreUp = echo cmd1\nPreUp = echo cmd2\n"
+            "PostUp = iptables -A FORWARD\nPostUp = iptables -A INPUT\n"
+        )
+        with patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path):
+            result = _parse_conf_file("wg0")
+            assert result is not None
+            iface = result[0]
+            assert iface.pre_up == "echo cmd1\necho cmd2"
+            assert iface.post_up == "iptables -A FORWARD\niptables -A INPUT"
+
+    def test_empty_conf_file(self, tmp_path):
+        conf = tmp_path / "wg0.conf"
+        conf.write_text("")
+        with patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path):
+            result = _parse_conf_file("wg0")
+            assert result is not None
+            iface, peers = result
+            assert iface.name == "wg0"
+            assert iface.address is None
+            assert peers == []
+
+
+# ---------------------------------------------------------------------------
+# _build_conf_content — multi-line hooks round-trip
+# ---------------------------------------------------------------------------
+
+
+class TestBuildConfContentMultiLine:
+    def test_multi_line_hooks_round_trip(self):
+        iface = Interface(
+            name="wg0",
+            address="10.0.0.1/24",
+            private_key=VALID_KEY,
+            pre_up="echo cmd1\necho cmd2",
+            post_down="iptables -D FORWARD\niptables -D INPUT",
+        )
+        content = _build_conf_content(iface).decode()
+        assert content.count("PreUp = ") == 2
+        assert "PreUp = echo cmd1" in content
+        assert "PreUp = echo cmd2" in content
+        assert content.count("PostDown = ") == 2
+        assert "PostDown = iptables -D FORWARD" in content
+        assert "PostDown = iptables -D INPUT" in content
+
+    def test_single_hook_no_split(self):
+        iface = Interface(
+            name="wg0",
+            address="10.0.0.1/24",
+            private_key=VALID_KEY,
+            post_up="iptables -A FORWARD -i %i",
+        )
+        content = _build_conf_content(iface).decode()
+        assert content.count("PostUp = ") == 1

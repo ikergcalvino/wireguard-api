@@ -357,6 +357,20 @@ class TestDeleteInterface:
             assert rc == 1
             assert conf.exists()
 
+    async def test_cleans_up_bak_file(self, tmp_path):
+        conf = tmp_path / "wg0.conf"
+        conf.write_text("[Interface]\n")
+        bak = tmp_path / "wg0.conf.bak"
+        bak.write_text("[Interface]\nold backup\n")
+        with (
+            patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "", 0)),
+            patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path),
+        ):
+            stderr, rc = await delete_interface("wg0")
+            assert rc == 0
+            assert not conf.exists()
+            assert not bak.exists()
+
     async def test_not_found(self, tmp_path):
         with (
             patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path),
