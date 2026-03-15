@@ -23,7 +23,7 @@ def register_exception_handlers(app: FastAPI) -> None:
     async def permission_handler(request: Request, exc: PermissionError):
         logger.error("permission denied on %s %s: %s", request.method, request.url.path, exc)
         return JSONResponse(
-            status_code=500,
+            status_code=403,
             content={"detail": "Permission denied: check WireGuard config directory permissions"},
         )
 

@@ -38,16 +38,16 @@ jobs:
       - run: pip install -e ".[type]"
       - run: mypy api
 
-  # test:
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - uses: actions/checkout@v6
-  #     - uses: actions/setup-python@v6
-  #       with:
-  #         python-version: "3.13"
-  #         cache: pip
-  #     - run: pip install -e ".[dev]"
-  #     - run: pytest -v
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - run: pytest -v
 
   build-check:
     runs-on: ubuntu-latest

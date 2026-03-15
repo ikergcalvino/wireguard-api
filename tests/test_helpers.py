@@ -88,10 +88,10 @@ class TestParsePeersDump:
         line = f"{VALID_KEY}\t(none)\t1.2.3.4:51820\t10.0.0.2/32\t1700000000\t1024\t2048\toff"
         peers = _parse_peers_dump([line])
         assert len(peers) == 1
-        assert peers[0]["public_key"] == VALID_KEY
-        assert peers[0]["endpoint"] == "1.2.3.4:51820"
-        assert peers[0]["preshared_key"] is None
-        assert peers[0]["persistent_keepalive"] is None
+        assert peers[0].public_key == VALID_KEY
+        assert peers[0].endpoint == "1.2.3.4:51820"
+        assert peers[0].preshared_key is None
+        assert peers[0].persistent_keepalive is None
 
     def test_parses_multiple_peers(self):
         lines = [
@@ -100,7 +100,7 @@ class TestParsePeersDump:
         ]
         peers = _parse_peers_dump(lines)
         assert len(peers) == 2
-        assert peers[1]["persistent_keepalive"] == 25
+        assert peers[1].persistent_keepalive == 25
 
     def test_skips_short_lines(self):
         peers = _parse_peers_dump(["too\tfew\tfields"])
@@ -112,9 +112,9 @@ class TestParsePeersDump:
     def test_none_values(self):
         line = f"{VALID_KEY}\t(none)\t(none)\t(none)\t0\t0\t0\toff"
         peers = _parse_peers_dump([line])
-        assert peers[0]["endpoint"] is None
-        assert peers[0]["allowed_ips"] is None
-        assert peers[0]["latest_handshake"] is None
+        assert peers[0].endpoint is None
+        assert peers[0].allowed_ips is None
+        assert peers[0].latest_handshake is None
 
     def test_malformed_line_skipped(self):
         line = f"{VALID_KEY}\t(none)\t(none)\t(none)\tBAD\tBAD\tBAD\toff"

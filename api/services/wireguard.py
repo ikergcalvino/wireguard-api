@@ -4,17 +4,16 @@ import asyncio
 import logging
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from api.config import settings
-
-if TYPE_CHECKING:
-    from api.models.interfaces import Interface
+from api.models.interfaces import Interface
+from api.models.peers import Peer
 
 logger = logging.getLogger("wireguard-api")
 
 WG_CONFIG_DIR = settings.config_dir
 _CMD_TIMEOUT = 30
+_create_lock = asyncio.Lock()
 
 
 async def _run(args: list[str], stdin_data: bytes | None = None) -> tuple[str, str, int]:
@@ -73,7 +72,7 @@ def _read_conf_address(name: str) -> str | None:
     return ", ".join(addresses) if addresses else None
 
 
-async def list_interfaces() -> list[dict]:
+async def list_interfaces() -> list[Interface]:
     stdout, _, rc = await _run(["wg", "show", "all", "dump"])
     if rc != 0 or not stdout:
         return []
@@ -94,10 +93,10 @@ async def list_interfaces() -> list[dict]:
         elif len(parts) == 9 and name in interfaces:
             interfaces[name]["num_peers"] += 1
 
-    return list(interfaces.values())
+    return [Interface(**data) for data in interfaces.values()]
 
 
-async def get_interface(name: str) -> dict | None:
+async def get_interface(name: str) -> Interface | None:
     stdout, _, rc = await _run(["wg", "show", name, "dump"])
     if rc != 0:
         return None
@@ -109,17 +108,17 @@ async def get_interface(name: str) -> dict | None:
     # wg show dump: private_key \t public_key \t listen_port \t fwmark
     # parts[0] is private_key — intentionally omitted from response for security
     parts = lines[0].split("\t")
-    return {
-        "name": name,
-        "public_key": parts[1] if len(parts) > 1 else None,
-        "listen_port": int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None,
-        "fw_mark": parts[3] if len(parts) > 3 and parts[3] != "off" else None,
-        "num_peers": len(lines) - 1,
-        "address": _read_conf_address(name),
-    }
+    return Interface(
+        name=name,
+        public_key=parts[1] if len(parts) > 1 and parts[1] != "(none)" else None,
+        listen_port=int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None,
+        fw_mark=parts[3] if len(parts) > 3 and parts[3] != "off" else None,
+        num_peers=len(lines) - 1,
+        address=_read_conf_address(name),
+    )
 
 
-def _build_conf_content(iface: Interface) -> bytes:
+def _build_conf_content(iface: Interface, peers: list[Peer] | None = None) -> bytes:
     lines = ["[Interface]"]
     if iface.address:
         lines.append(f"Address = {iface.address}")
@@ -145,6 +144,20 @@ def _build_conf_content(iface: Interface) -> bytes:
         lines.append(f"PostDown = {iface.post_down}")
     if iface.save_config is not None:
         lines.append(f"SaveConfig = {'true' if iface.save_config else 'false'}")
+    if peers:
+        for peer in peers:
+            lines.append("")
+            lines.append("[Peer]")
+            if peer.public_key:
+                lines.append(f"PublicKey = {peer.public_key}")
+            if peer.preshared_key:
+                lines.append(f"PresharedKey = {peer.preshared_key}")
+            if peer.allowed_ips:
+                lines.append(f"AllowedIPs = {peer.allowed_ips}")
+            if peer.endpoint:
+                lines.append(f"Endpoint = {peer.endpoint}")
+            if peer.persistent_keepalive is not None:
+                lines.append(f"PersistentKeepalive = {peer.persistent_keepalive}")
     return ("\n".join(lines) + "\n").encode()
 
 
@@ -156,19 +169,20 @@ async def create_interface(iface: Interface) -> tuple[str, int]:
 
     conf = _conf_path(iface.name)
     content = _build_conf_content(iface)
-    try:
-        fd = os.open(str(conf), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    async with _create_lock:
         try:
-            os.write(fd, content)
-        finally:
-            os.close(fd)
-    except FileExistsError:
-        raise FileExistsError(f"Interface '{iface.name}' already exists") from None
+            fd = os.open(str(conf), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            try:
+                os.write(fd, content)
+            finally:
+                os.close(fd)
+        except FileExistsError:
+            raise FileExistsError(f"Interface '{iface.name}' already exists") from None
 
-    logger.info("creating interface %s", iface.name)
-    _, stderr, rc = await _run(["wg-quick", "up", iface.name])
-    if rc != 0:
-        conf.unlink(missing_ok=True)
+        logger.info("creating interface %s", iface.name)
+        _, stderr, rc = await _run(["wg-quick", "up", iface.name])
+        if rc != 0:
+            conf.unlink(missing_ok=True)
     return stderr, rc
 
 
@@ -179,20 +193,24 @@ async def update_interface(name: str, iface: Interface) -> tuple[str, int]:
         raise ValueError("address is required")
 
     conf = _require_conf(name)
-    content = _build_conf_content(iface)
+    peers = await list_peers(name)
+    content = _build_conf_content(iface, peers=peers)
     conf.write_bytes(content)
     conf.chmod(0o600)
 
     logger.info("updating interface %s", name)
-    return "", 0
+    _, stderr, rc = await _run(["wg", "syncconf", name, str(conf)])
+    return stderr, rc
 
 
 async def delete_interface(name: str) -> tuple[str, int]:
     conf = _require_conf(name)
     logger.info("deleting interface %s", name)
     _, stderr, rc = await _run(["wg-quick", "down", name])
+    if rc != 0:
+        return stderr, rc
     conf.unlink(missing_ok=True)
-    return stderr if rc != 0 else "", 0
+    return "", 0
 
 
 async def interface_up(name: str) -> tuple[str, int]:
@@ -221,42 +239,42 @@ async def interface_save(name: str) -> tuple[str, int]:
 # ---------------------------------------------------------------------------
 
 
-def _parse_peers_dump(lines: list[str]) -> list[dict]:
-    peers = []
+def _parse_peers_dump(lines: list[str]) -> list[Peer]:
+    peers: list[Peer] = []
     for line in lines:
         parts = line.split("\t")
         if len(parts) < 8:
             continue
         try:
             peers.append(
-                {
-                    "public_key": parts[0],
-                    "preshared_key": parts[1] if parts[1] != "(none)" else None,
-                    "endpoint": parts[2] if parts[2] != "(none)" else None,
-                    "allowed_ips": parts[3] if parts[3] != "(none)" else None,
-                    "latest_handshake": int(parts[4]) if parts[4] != "0" else None,
-                    "transfer_rx": int(parts[5]),
-                    "transfer_tx": int(parts[6]),
-                    "persistent_keepalive": int(parts[7]) if parts[7] != "off" else None,
-                }
+                Peer(
+                    public_key=parts[0],
+                    preshared_key=parts[1] if parts[1] != "(none)" else None,
+                    endpoint=parts[2] if parts[2] != "(none)" else None,
+                    allowed_ips=parts[3] if parts[3] != "(none)" else None,
+                    latest_handshake=int(parts[4]) if parts[4] != "0" else None,
+                    transfer_rx=int(parts[5]),
+                    transfer_tx=int(parts[6]),
+                    persistent_keepalive=int(parts[7]) if parts[7] != "off" else None,
+                )
             )
         except (ValueError, IndexError):
             logger.warning("skipping malformed peer dump line: %s", line)
     return peers
 
 
-async def list_peers(iface: str) -> list[dict] | None:
+async def list_peers(iface: str) -> list[Peer] | None:
     stdout, _, rc = await _run(["wg", "show", iface, "dump"])
     if rc != 0:
         return None
     return _parse_peers_dump(stdout.splitlines()[1:])
 
 
-async def get_peer(iface: str, public_key: str) -> dict | None:
+async def get_peer(iface: str, public_key: str) -> Peer | None:
     peers = await list_peers(iface)
     if peers is None:
         return None
-    return next((p for p in peers if p["public_key"] == public_key), None)
+    return next((p for p in peers if p.public_key == public_key), None)
 
 
 async def set_peer(

@@ -34,10 +34,10 @@ class TestListInterfaces:
 
         result = await list_interfaces()
         assert len(result) == 1
-        assert result[0]["name"] == "wg0"
-        assert result[0]["public_key"] == VALID_KEY
-        assert result[0]["num_peers"] == 0
-        assert result[0]["address"] == "10.0.0.1/24"
+        assert result[0].name == "wg0"
+        assert result[0].public_key == VALID_KEY
+        assert result[0].num_peers == 0
+        assert result[0].address == "10.0.0.1/24"
 
     async def test_interface_with_peers(self, mock_wg):
         mock_run, tmp_path = mock_wg
@@ -49,7 +49,7 @@ class TestListInterfaces:
         mock_run.return_value = (dump, "", 0)
 
         result = await list_interfaces()
-        assert result[0]["num_peers"] == 1
+        assert result[0].num_peers == 1
 
     async def test_empty_when_no_interfaces(self, mock_wg):
         mock_run, _ = mock_wg
@@ -78,8 +78,8 @@ class TestGetInterface:
             conf.write_text("[Interface]\nAddress = 10.0.0.1/24\n")
             result = await get_interface("wg0")
             assert result is not None
-            assert result["name"] == "wg0"
-            assert result["address"] == "10.0.0.1/24"
+            assert result.name == "wg0"
+            assert result.address == "10.0.0.1/24"
 
     async def test_returns_none_on_error(self):
         with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "err", 1)):
@@ -161,11 +161,37 @@ class TestUpdateInterface:
     async def test_success(self, tmp_path):
         (tmp_path / "wg0.conf").write_text("[Interface]\nAddress = 10.0.0.1/24\n")
         iface = Interface(name="wg0", address="10.0.0.2/24", private_key=VALID_KEY)
-        with patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path):
+        with (
+            patch("api.services.wireguard._run", new_callable=AsyncMock) as mock_run,
+            patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path),
+        ):
+            mock_run.side_effect = [
+                ("PRIVATE\tPUBLIC\t51820\toff", "", 0),  # wg show dump (list_peers)
+                ("", "", 0),  # wg syncconf
+            ]
             stderr, rc = await update_interface("wg0", iface)
             assert rc == 0
             content = (tmp_path / "wg0.conf").read_text()
             assert "10.0.0.2/24" in content
+
+    async def test_preserves_peers(self, tmp_path):
+        (tmp_path / "wg0.conf").write_text("[Interface]\nAddress = 10.0.0.1/24\n")
+        iface = Interface(name="wg0", address="10.0.0.2/24", private_key=VALID_KEY)
+        peer_dump = f"PRIVATE\tPUBLIC\t51820\toff\n{VALID_KEY}\t(none)\t1.2.3.4:51820\t10.0.0.2/32\t0\t0\t0\toff"
+        with (
+            patch("api.services.wireguard._run", new_callable=AsyncMock) as mock_run,
+            patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path),
+        ):
+            mock_run.side_effect = [
+                (peer_dump, "", 0),  # wg show dump (list_peers)
+                ("", "", 0),  # wg syncconf
+            ]
+            stderr, rc = await update_interface("wg0", iface)
+            assert rc == 0
+            content = (tmp_path / "wg0.conf").read_text()
+            assert "[Peer]" in content
+            assert VALID_KEY in content
+            assert "10.0.0.2/32" in content
 
     async def test_not_found(self, tmp_path):
         iface = Interface(name="wg0", address="10.0.0.1/24", private_key=VALID_KEY)
@@ -202,7 +228,7 @@ class TestDeleteInterface:
             assert rc == 0
             assert not conf.exists()
 
-    async def test_deletes_conf_even_if_down_fails(self, tmp_path):
+    async def test_returns_error_if_down_fails(self, tmp_path):
         conf = tmp_path / "wg0.conf"
         conf.write_text("[Interface]\n")
         with (
@@ -210,8 +236,8 @@ class TestDeleteInterface:
             patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path),
         ):
             stderr, rc = await delete_interface("wg0")
-            assert rc == 0
-            assert not conf.exists()
+            assert rc == 1
+            assert conf.exists()
 
     async def test_not_found(self, tmp_path):
         with (

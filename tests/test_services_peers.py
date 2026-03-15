@@ -39,7 +39,7 @@ class TestGetPeer:
         with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=(dump, "", 0)):
             peer = await get_peer("wg0", VALID_KEY)
             assert peer is not None
-            assert peer["public_key"] == VALID_KEY
+            assert peer.public_key == VALID_KEY
 
     async def test_returns_none_when_not_found(self):
         dump = "PRIVATE\tPUBLIC\t51820\toff"
