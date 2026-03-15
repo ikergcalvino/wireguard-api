@@ -37,12 +37,12 @@ test: ## Run tests
 	pytest -v
 
 type: ## Run type checker
-	mypy api
+	ty check
 
 check: lint type test ## Run all checks (lint + type + test)
 
 clean: ## Remove build artifacts and caches
-	rm -rf build/ dist/ *.egg-info .mypy_cache .pytest_cache
+	rm -rf build/ dist/ *.egg-info .pytest_cache
 	find . -type d -name __pycache__ -exec rm -rf {} +
 
 # ---------------------------------------------------------------------------

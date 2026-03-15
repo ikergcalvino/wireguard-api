@@ -175,6 +175,23 @@ class TestUpdateInterface:
             )
             assert r.status_code == 400
 
+    async def test_update_get_fails_after_success(self, client, tmp_path):
+        (tmp_path / "wg0.conf").write_text("[Interface]\nAddress = 10.0.0.1/24\nPrivateKey = old\n")
+        with (
+            patch("api.services.wireguard._run", new_callable=AsyncMock) as mock_run,
+            patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path),
+        ):
+            mock_run.side_effect = [
+                ("PRIVATE\tPUBLIC\t51820\toff", "", 0),  # wg show dump (list_peers)
+                ("", "", 0),  # wg syncconf
+                ("", "err", 1),  # wg show dump (get_interface fails)
+            ]
+            r = await client.put(
+                "/api/v1/interfaces/wg0",
+                json={"name": "wg0", "address": "10.0.0.2/24", "private_key": VALID_KEY},
+            )
+            assert r.status_code == 500
+
 
 # ---------------------------------------------------------------------------
 # Get Interface

@@ -2,7 +2,10 @@ from unittest.mock import patch
 
 import pytest
 
+from api.models.interfaces import Interface
+from api.models.peers import Peer
 from api.services.wireguard import (
+    _build_conf_content,
     _conf_path,
     _parse_peers_dump,
     _read_conf_address,
@@ -77,6 +80,12 @@ class TestReadConfAddress:
         with patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path):
             assert _read_conf_address("wg0") == "10.0.0.1/24, fd00::1/64"
 
+    def test_stops_at_peer_section(self, tmp_path):
+        conf = tmp_path / "wg0.conf"
+        conf.write_text("[Interface]\nAddress = 10.0.0.1/24\n\n[Peer]\nAllowedIPs = 10.0.0.2/32\n")
+        with patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path):
+            assert _read_conf_address("wg0") == "10.0.0.1/24"
+
 
 # ---------------------------------------------------------------------------
 # _parse_peers_dump
@@ -120,3 +129,75 @@ class TestParsePeersDump:
         line = f"{VALID_KEY}\t(none)\t(none)\t(none)\tBAD\tBAD\tBAD\toff"
         peers = _parse_peers_dump([line])
         assert peers == []
+
+
+# ---------------------------------------------------------------------------
+# _build_conf_content
+# ---------------------------------------------------------------------------
+
+
+class TestBuildConfContent:
+    def test_minimal(self):
+        iface = Interface(name="wg0", address="10.0.0.1/24", private_key=VALID_KEY)
+        content = _build_conf_content(iface).decode()
+        assert "[Interface]" in content
+        assert "Address = 10.0.0.1/24" in content
+        assert f"PrivateKey = {VALID_KEY}" in content
+
+    def test_all_interface_fields(self):
+        iface = Interface(
+            name="wg0",
+            address="10.0.0.1/24",
+            private_key=VALID_KEY,
+            listen_port=51820,
+            dns="1.1.1.1",
+            mtu=1420,
+            table="auto",
+            pre_up="echo pre",
+            post_up="echo post",
+            pre_down="echo predown",
+            post_down="echo postdown",
+            save_config=True,
+        )
+        content = _build_conf_content(iface).decode()
+        assert "ListenPort = 51820" in content
+        assert "DNS = 1.1.1.1" in content
+        assert "MTU = 1420" in content
+        assert "Table = auto" in content
+        assert "PreUp = echo pre" in content
+        assert "PostUp = echo post" in content
+        assert "PreDown = echo predown" in content
+        assert "PostDown = echo postdown" in content
+        assert "SaveConfig = true" in content
+
+    def test_with_peers(self):
+        iface = Interface(name="wg0", address="10.0.0.1/24", private_key=VALID_KEY)
+        peers = [
+            Peer(public_key=VALID_KEY, allowed_ips="10.0.0.2/32", endpoint="1.2.3.4:51820"),
+        ]
+        content = _build_conf_content(iface, peers=peers).decode()
+        assert "[Peer]" in content
+        assert f"PublicKey = {VALID_KEY}" in content
+        assert "AllowedIPs = 10.0.0.2/32" in content
+        assert "Endpoint = 1.2.3.4:51820" in content
+
+    def test_peer_with_keepalive(self):
+        iface = Interface(name="wg0", address="10.0.0.1/24", private_key=VALID_KEY)
+        peers = [Peer(public_key=VALID_KEY, allowed_ips="10.0.0.2/32", persistent_keepalive=25)]
+        content = _build_conf_content(iface, peers=peers).decode()
+        assert "PersistentKeepalive = 25" in content
+
+    def test_no_peers(self):
+        iface = Interface(name="wg0", address="10.0.0.1/24", private_key=VALID_KEY)
+        content = _build_conf_content(iface).decode()
+        assert "[Peer]" not in content
+
+    def test_empty_peers_list(self):
+        iface = Interface(name="wg0", address="10.0.0.1/24", private_key=VALID_KEY)
+        content = _build_conf_content(iface, peers=[]).decode()
+        assert "[Peer]" not in content
+
+    def test_ends_with_newline(self):
+        iface = Interface(name="wg0", address="10.0.0.1/24", private_key=VALID_KEY)
+        content = _build_conf_content(iface).decode()
+        assert content.endswith("\n")

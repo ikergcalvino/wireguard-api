@@ -35,7 +35,10 @@ async def update_interface(name: IfaceName, body: Interface):
     stderr, rc = await wg.update_interface(name, body)
     if rc != 0:
         raise HTTPException(status_code=400, detail=stderr)
-    return await wg.get_interface(name) or body
+    result = await wg.get_interface(name)
+    if not result:
+        raise HTTPException(status_code=500, detail="Interface updated but could not be retrieved")
+    return result
 
 
 @router.delete("/{name}", status_code=204)

@@ -7,6 +7,9 @@ from api.services.wireguard import (
     create_interface,
     delete_interface,
     get_interface,
+    interface_down,
+    interface_save,
+    interface_up,
     list_interfaces,
     update_interface,
 )
@@ -210,6 +213,15 @@ class TestUpdateInterface:
         ):
             await update_interface("wg0", iface)
 
+    async def test_missing_address(self, tmp_path):
+        (tmp_path / "wg0.conf").write_text("[Interface]\n")
+        iface = Interface(name="wg0", private_key=VALID_KEY)
+        with (
+            patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path),
+            pytest.raises(ValueError, match="address"),
+        ):
+            await update_interface("wg0", iface)
+
 
 # ---------------------------------------------------------------------------
 # delete_interface
@@ -245,3 +257,62 @@ class TestDeleteInterface:
             pytest.raises(FileNotFoundError),
         ):
             await delete_interface("wg0")
+
+
+# ---------------------------------------------------------------------------
+# interface_up / interface_down / interface_save
+# ---------------------------------------------------------------------------
+
+
+class TestInterfaceUp:
+    async def test_success(self, tmp_path):
+        (tmp_path / "wg0.conf").write_text("[Interface]\n")
+        with (
+            patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "", 0)),
+            patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path),
+        ):
+            stderr, rc = await interface_up("wg0")
+            assert rc == 0
+
+    async def test_not_found(self, tmp_path):
+        with (
+            patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path),
+            pytest.raises(FileNotFoundError),
+        ):
+            await interface_up("wg0")
+
+
+class TestInterfaceDown:
+    async def test_success(self, tmp_path):
+        (tmp_path / "wg0.conf").write_text("[Interface]\n")
+        with (
+            patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "", 0)),
+            patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path),
+        ):
+            stderr, rc = await interface_down("wg0")
+            assert rc == 0
+
+    async def test_not_found(self, tmp_path):
+        with (
+            patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path),
+            pytest.raises(FileNotFoundError),
+        ):
+            await interface_down("wg0")
+
+
+class TestInterfaceSave:
+    async def test_success(self, tmp_path):
+        (tmp_path / "wg0.conf").write_text("[Interface]\n")
+        with (
+            patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "", 0)),
+            patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path),
+        ):
+            stderr, rc = await interface_save("wg0")
+            assert rc == 0
+
+    async def test_not_found(self, tmp_path):
+        with (
+            patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path),
+            pytest.raises(FileNotFoundError),
+        ):
+            await interface_save("wg0")

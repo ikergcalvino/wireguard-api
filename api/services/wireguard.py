@@ -66,6 +66,8 @@ def _read_conf_address(name: str) -> str | None:
     addresses: list[str] = []
     for line in conf.read_text().splitlines():
         stripped = line.strip()
+        if stripped.startswith("[") and stripped != "[Interface]":
+            break
         key, sep, value = stripped.partition("=")
         if sep and key.strip().lower() == "address":
             addresses.append(value.strip())

@@ -1,10 +1,10 @@
 from pathlib import Path
 
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = {"env_prefix": "WG_"}
+    model_config = SettingsConfigDict(env_prefix="WG_")
 
     api_key: str = ""
     log_level: str = "INFO"
