@@ -54,7 +54,8 @@ make install   # pip install .
 make run       # uvicorn on 0.0.0.0:8000
 ```
 
-> **Note:** The process needs `CAP_NET_ADMIN` to manage WireGuard interfaces. Run with `sudo` or grant the capability to the Python binary.
+> [!IMPORTANT]
+> The process needs `CAP_NET_ADMIN` to manage WireGuard interfaces. Run with `sudo` or grant the capability to the Python binary.
 
 The API will be available at `http://localhost:8000` (or your configured `WG_API_PORT`).
 
@@ -87,7 +88,8 @@ Interactive docs: `/docs` (Swagger UI) and `/redoc` (ReDoc).
 | `PUT`    | `/api/v1/interfaces/{iface}/peers/{public_key}`  | Update peer    |
 | `DELETE` | `/api/v1/interfaces/{iface}/peers/{public_key}`  | Remove peer    |
 
-> **Note:** `POST`, `PUT`, and `DELETE` peer operations automatically persist changes to the `.conf` file.
+> [!NOTE]
+> `POST`, `PUT`, and `DELETE` peer operations automatically persist changes to the `.conf` file.
 > If auto-save fails, the response includes an `X-Save-Warning` header.
 >
 > Interface responses include a `status` field (`"up"` or `"down"`) indicating whether the interface is currently running.
@@ -211,7 +213,8 @@ The Docker container runs with `network_mode: host` and `NET_ADMIN` capability, 
 - Config files written with `0600` permissions
 - Container requires only `NET_ADMIN` capability
 
-> **⚠️ Hook scripts:** The `PreUp`, `PostUp`, `PreDown`, and `PostDown` fields are executed by `bash` via `wg-quick`.
+> [!CAUTION]
+> The `PreUp`, `PostUp`, `PreDown`, and `PostDown` fields are executed by `bash` via `wg-quick`.
 > An authenticated user can set arbitrary commands through these fields. In multi-tenant or untrusted environments,
 > consider restricting access to the API key or disabling these fields at the application level.
 
