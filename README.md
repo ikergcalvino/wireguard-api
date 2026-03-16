@@ -67,26 +67,26 @@ Interactive docs: `/docs` (Swagger UI) and `/redoc` (ReDoc).
 
 ### Interfaces
 
-| Method   | Path                             | Description                  |
-|----------|----------------------------------|------------------------------|
+| Method   | Path                             | Description                     |
+|----------|----------------------------------|---------------------------------|
 | `GET`    | `/api/v1/interfaces`             | List all interfaces (up & down) |
-| `POST`   | `/api/v1/interfaces`             | Create interface (.conf + up)|
-| `GET`    | `/api/v1/interfaces/{name}`      | Get interface details        |
-| `PUT`    | `/api/v1/interfaces/{name}`      | Update interface config      |
-| `DELETE` | `/api/v1/interfaces/{name}`      | Delete interface (down + rm) |
-| `POST`   | `/api/v1/interfaces/{name}/up`   | Bring interface up           |
-| `POST`   | `/api/v1/interfaces/{name}/down` | Bring interface down         |
-| `POST`   | `/api/v1/interfaces/{name}/save` | Persist runtime to .conf     |
+| `POST`   | `/api/v1/interfaces`             | Create interface (.conf + up)   |
+| `GET`    | `/api/v1/interfaces/{name}`      | Get interface details           |
+| `PUT`    | `/api/v1/interfaces/{name}`      | Update interface config         |
+| `DELETE` | `/api/v1/interfaces/{name}`      | Delete interface (down + rm)    |
+| `POST`   | `/api/v1/interfaces/{name}/up`   | Bring interface up              |
+| `POST`   | `/api/v1/interfaces/{name}/down` | Bring interface down            |
+| `POST`   | `/api/v1/interfaces/{name}/save` | Persist runtime to .conf        |
 
 ### Peers
 
-| Method   | Path                                             | Description    |
-|----------|--------------------------------------------------|----------------|
-| `GET`    | `/api/v1/interfaces/{iface}/peers`               | List peers     |
-| `POST`   | `/api/v1/interfaces/{iface}/peers`               | Add peer       |
-| `GET`    | `/api/v1/interfaces/{iface}/peers/{public_key}`  | Get peer       |
-| `PUT`    | `/api/v1/interfaces/{iface}/peers/{public_key}`  | Update peer    |
-| `DELETE` | `/api/v1/interfaces/{iface}/peers/{public_key}`  | Remove peer    |
+| Method   | Path                                            | Description |
+|----------|-------------------------------------------------|-------------|
+| `GET`    | `/api/v1/interfaces/{iface}/peers`              | List peers  |
+| `POST`   | `/api/v1/interfaces/{iface}/peers`              | Add peer    |
+| `GET`    | `/api/v1/interfaces/{iface}/peers/{public_key}` | Get peer    |
+| `PUT`    | `/api/v1/interfaces/{iface}/peers/{public_key}` | Update peer |
+| `DELETE` | `/api/v1/interfaces/{iface}/peers/{public_key}` | Remove peer |
 
 > [!NOTE]
 > `POST`, `PUT`, and `DELETE` peer operations automatically persist changes to the `.conf` file.
@@ -136,13 +136,13 @@ curl http://localhost:8000/api/v1/interfaces \
 
 ## Configuration
 
-| Variable          | Default            | Description                                  |
-|-------------------|--------------------|----------------------------------------------|
-| `WG_API_KEY`      | (empty)            | API key for auth; if empty, auth is disabled  |
-| `WG_API_PORT`     | `8000`             | API server port (used by Makefile and Compose, not the app itself) |
-| `WG_LOG_LEVEL`    | `INFO`             | Log level: DEBUG, INFO, WARNING, ERROR       |
-| `WG_CORS_ORIGINS` | `*`                | Comma-separated allowed CORS origins         |
-| `WG_CONFIG_DIR`   | `/etc/wireguard`   | Path to WireGuard configuration directory    |
+| Variable          | Default          | Description                                                        |
+|-------------------|------------------|--------------------------------------------------------------------|
+| `WG_API_KEY`      | (empty)          | API key for authentication; if empty, authentication is disabled   |
+| `WG_API_PORT`     | `8000`           | API server port (used by Makefile and Compose, not the app itself) |
+| `WG_LOG_LEVEL`    | `INFO`           | Log level: DEBUG, INFO, WARNING, ERROR                             |
+| `WG_CORS_ORIGINS` | `*`              | Comma-separated allowed CORS origins                               |
+| `WG_CONFIG_DIR`   | `/etc/wireguard` | Path to WireGuard configuration directory                          |
 
 ## Project Structure
 
