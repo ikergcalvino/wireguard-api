@@ -14,10 +14,10 @@ authors = [
 ]
 
 dependencies = [
-  "fastapi==0.115.6",
-  "uvicorn[standard]==0.34.0",
-  "pydantic==2.10.4",
-  "pydantic-settings==2.7.1",
+  "fastapi==0.135.1",
+  "uvicorn[standard]==0.41.0",
+  "pydantic==2.12.5",
+  "pydantic-settings==2.13.1",
 ]
 
 [project.optional-dependencies]
