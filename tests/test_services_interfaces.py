@@ -1,3 +1,4 @@
+import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -89,6 +90,15 @@ class TestListInterfaces:
         mock_run, _ = mock_wg
         mock_run.return_value = ("", "error", 1)
         assert await list_interfaces() == []
+
+    async def test_skips_invalid_conf_names(self, mock_wg):
+        mock_run, tmp_path = mock_wg
+        mock_run.return_value = ("", "", 0)
+        (tmp_path / "wg0.conf").write_text("[Interface]\nAddress = 10.0.0.1/24\n")
+        (tmp_path / "inv@lid.conf").write_text("[Interface]\nAddress = 10.0.0.2/24\n")
+        result = await list_interfaces()
+        assert len(result) == 1
+        assert result[0].name == "wg0"
 
 
 # ---------------------------------------------------------------------------
@@ -377,6 +387,19 @@ class TestDeleteInterface:
             pytest.raises(FileNotFoundError),
         ):
             await delete_interface("wg0")
+
+    async def test_cleans_up_update_lock(self, tmp_path):
+        from api.services.wireguard import _update_locks
+
+        _update_locks["wg0"] = asyncio.Lock()
+        conf = tmp_path / "wg0.conf"
+        conf.write_text("[Interface]\n")
+        with (
+            patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "", 0)),
+            patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path),
+        ):
+            await delete_interface("wg0")
+            assert "wg0" not in _update_locks
 
 
 # ---------------------------------------------------------------------------

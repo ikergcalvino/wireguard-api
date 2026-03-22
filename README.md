@@ -16,7 +16,7 @@ The API runs inside a Docker container with `network_mode: host`, giving it dire
 - **Optional API Key auth** — protect endpoints with `X-API-Key` header
 - **CORS support** — configurable origins for frontend integration
 - **Structured logging** — timestamped, leveled logs configurable via environment
-- **Minimal Docker image** — single-stage `python:3.13-alpine`
+- **Minimal Docker image** — single-stage `python:3.14-alpine`
 
 ## Prerequisites
 

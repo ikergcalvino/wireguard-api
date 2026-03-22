@@ -178,6 +178,18 @@ class TestUpdateInterface:
             )
             assert r.status_code == 400
 
+    async def test_update_success_but_get_returns_none(self, client):
+        with (
+            patch("api.routers.interfaces.wg.update_interface", new_callable=AsyncMock, return_value=("", 0)),
+            patch("api.routers.interfaces.wg.get_interface", new_callable=AsyncMock, return_value=None),
+        ):
+            r = await client.put(
+                "/api/v1/interfaces/wg0",
+                json={"name": "wg0", "address": "10.0.0.2/24", "private_key": VALID_KEY},
+            )
+            assert r.status_code == 500
+            assert "could not be retrieved" in r.json()["detail"].lower()
+
 
 # ---------------------------------------------------------------------------
 # Get Interface

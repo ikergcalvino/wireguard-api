@@ -106,7 +106,7 @@ class TestSetPeer:
                 VALID_KEY,
                 allowed_ips="10.0.0.2/32",
                 endpoint="1.2.3.4:51820",
-                preshared_key="psk-data",
+                preshared_key=VALID_KEY,
                 persistent_keepalive=25,
             )
             args = mock_run.call_args_list[0][0][0]

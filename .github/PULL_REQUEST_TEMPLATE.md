@@ -19,6 +19,7 @@ Closes #
 - [ ] I have read the [Contributing guidelines](CONTRIBUTING.md)
 - [ ] `ruff check .` passes
 - [ ] `ruff format --check .` passes
+- [ ] `ty check` passes
 - [ ] Tests added/updated
 - [ ] `pytest` passes
 - [ ] `docker compose build` succeeds

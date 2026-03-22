@@ -1,10 +1,11 @@
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from api.models.interfaces import Interface
 from api.models.peers import Peer
 from api.services.wireguard import (
+    _auto_save,
     _build_conf_content,
     _conf_path,
     _parse_conf_file,
@@ -408,3 +409,17 @@ class TestBuildConfContentMultiLine:
         )
         content = _build_conf_content(iface).decode()
         assert content.count("PostUp = ") == 1
+
+# ---------------------------------------------------------------------------
+# _auto_save
+# ---------------------------------------------------------------------------
+
+
+class TestAutoSave:
+    async def test_returns_true_on_success(self):
+        with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "", 0)):
+            assert await _auto_save("wg0") is True
+
+    async def test_returns_false_on_failure(self):
+        with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "save error", 1)):
+            assert await _auto_save("wg0") is False

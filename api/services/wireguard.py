@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 
 from api.config import settings
+from api.models import IFACE_NAME_PATTERN
 from api.models.interfaces import Interface
 from api.models.peers import Peer
 
@@ -72,7 +73,7 @@ def _parse_conf_file(name: str) -> tuple[Interface, list[Peer]] | None:
     current_peer: dict[str, str] = {}
     section: str | None = None
 
-    for line in conf.read_text().splitlines():
+    for line in conf.read_text(encoding="utf-8").splitlines():
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
             continue
@@ -174,6 +175,9 @@ async def list_interfaces() -> list[Interface]:
     result: list[Interface] = []
     for conf_file in sorted(WG_CONFIG_DIR.glob("*.conf")):
         iface_name = conf_file.stem
+        if not IFACE_NAME_PATTERN.match(iface_name):
+            logger.warning("skipping .conf with invalid interface name: %s", iface_name)
+            continue
         parsed = _parse_conf_file(iface_name)
         if not parsed:
             continue
@@ -288,10 +292,7 @@ async def update_interface(name: str, iface: Interface) -> tuple[str, int]:
         raise ValueError("address is required")
 
     # Per-interface lock to prevent concurrent update races
-    if name not in _update_locks:
-        _update_locks[name] = asyncio.Lock()
-
-    async with _update_locks[name]:
+    async with _update_locks.setdefault(name, asyncio.Lock()):
         conf = _require_conf(name)
 
         # Read current peers (kernel if up, .conf if down) to preserve them
@@ -342,6 +343,7 @@ async def delete_interface(name: str) -> tuple[str, int]:
 
     conf.unlink(missing_ok=True)
     conf.with_suffix(".conf.bak").unlink(missing_ok=True)
+    _update_locks.pop(name, None)
     return "", 0
 
 
