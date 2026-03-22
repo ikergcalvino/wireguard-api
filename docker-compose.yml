@@ -8,11 +8,14 @@ services:
       - NET_ADMIN
     volumes:
       - /etc/wireguard:/etc/wireguard:rw
-    env_file:
-      - .env
-    command: uvicorn api.main:app --host 0.0.0.0 --port ${WG_API_PORT}
+    environment:
+      WG_API_KEY: ""
+      WG_LOG_LEVEL: INFO
+      WG_CORS_ORIGINS: "*"
+      WG_CONFIG_DIR: /etc/wireguard
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:${WG_API_PORT}/api/v1/health"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8000/api/v1/health"]
       interval: 30s
       timeout: 5s
       retries: 3

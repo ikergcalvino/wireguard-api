@@ -1,6 +1,3 @@
--include .env
-export
-
 .PHONY: help install run install-dev dev lint format test type check clean build up down logs
 
 help: ## Show this help
@@ -14,7 +11,7 @@ install: ## Install the application
 	pip install .
 
 run: ## Run the API server
-	uvicorn api.main:app --host 0.0.0.0 --port $(WG_API_PORT)
+	uvicorn api.main:app --host 0.0.0.0 --port 8000
 
 # ---------------------------------------------------------------------------
 # Development
@@ -24,7 +21,7 @@ install-dev: ## Install with dev dependencies (editable)
 	pip install -e ".[dev]"
 
 dev: ## Run with hot reload (localhost only)
-	uvicorn api.main:app --reload --host 127.0.0.1 --port $(WG_API_PORT)
+	uvicorn api.main:app --reload --host 127.0.0.1 --port 8000
 
 lint: ## Run linter and format check
 	ruff check .

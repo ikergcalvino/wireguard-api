@@ -31,7 +31,6 @@ Regardless of the installation method, the **host** must have:
 ```bash
 git clone https://github.com/ikergcalvino/wireguard-api.git
 cd wireguard-api
-cp .env.example .env    # edit with your settings
 ```
 
 ### Docker (recommended)
@@ -139,7 +138,7 @@ curl http://localhost:8000/api/v1/interfaces \
 | Variable          | Default          | Description                                                        |
 |-------------------|------------------|--------------------------------------------------------------------|
 | `WG_API_KEY`      | (empty)          | API key for authentication; if empty, authentication is disabled   |
-| `WG_API_PORT`     | `8000`           | API server port (used by Makefile and Compose, not the app itself) |
+| `WG_API_PORT`     | `8000`           | API server port (used by Makefile and docker-compose)              |
 | `WG_LOG_LEVEL`    | `INFO`           | Log level: DEBUG, INFO, WARNING, ERROR                             |
 | `WG_CORS_ORIGINS` | `*`              | Comma-separated allowed CORS origins                               |
 | `WG_CONFIG_DIR`   | `/etc/wireguard` | Path to WireGuard configuration directory                          |
@@ -178,7 +177,6 @@ wireguard-api/
 ```bash
 python -m venv .venv && source .venv/bin/activate
 make install-dev   # pip install -e ".[dev]"
-cp .env.example .env
 ```
 
 ```bash

@@ -410,6 +410,7 @@ class TestBuildConfContentMultiLine:
         content = _build_conf_content(iface).decode()
         assert content.count("PostUp = ") == 1
 
+
 # ---------------------------------------------------------------------------
 # _auto_save
 # ---------------------------------------------------------------------------
