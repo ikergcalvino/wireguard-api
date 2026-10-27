@@ -8,7 +8,7 @@ Thanks for your interest in contributing! Here's how to get started.
 git clone https://github.com/ikergcalvino/wireguard-api.git
 cd wireguard-api
 python -m venv .venv && source .venv/bin/activate
-make install-dev   # pip install -e ".[dev]"
+make install-dev   # pip install -e . --group dev (needs pip 25.1+)
 ```
 
 ## Workflow

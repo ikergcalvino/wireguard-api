@@ -18,7 +18,8 @@ run: ## Run the API server
 # ---------------------------------------------------------------------------
 
 install-dev: ## Install with dev dependencies (editable)
-	pip install -e ".[dev]"
+	pip install --upgrade "pip>=25.1"
+	pip install -e . --group dev
 
 dev: ## Run with hot reload (localhost only)
 	uvicorn api.main:app --reload --host 127.0.0.1 --port 8000
