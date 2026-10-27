@@ -4,24 +4,33 @@ updates:
     directory: /
     target-branch: develop
     schedule:
-      interval: weekly
+      interval: monthly
     labels: [dependencies]
     commit-message:
       prefix: deps
     groups:
-      python-minor-and-patch:
-        update-types: [minor, patch]
+      runtime:
+        patterns:
+          - "fastapi"
+          - "pydantic*"
+          - "uvicorn*"
+      dev:
+        patterns:
+          - "httpx"
+          - "pytest*"
+          - "ruff"
+          - "ty"
 
   - package-ecosystem: github-actions
     directory: /
     target-branch: develop
     schedule:
-      interval: weekly
+      interval: monthly
     labels: [dependencies]
     commit-message:
       prefix: ci
     groups:
-      github-actions:
+      actions:
         patterns:
           - "*"
 
@@ -29,7 +38,7 @@ updates:
     directory: /
     target-branch: develop
     schedule:
-      interval: weekly
+      interval: monthly
     labels: [dependencies]
     commit-message:
       prefix: docker
