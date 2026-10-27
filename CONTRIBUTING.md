@@ -1,39 +1,81 @@
 # Contributing to wireguard-api
 
-Thanks for your interest in contributing! Here's how to get started.
+Thanks for your interest in improving wireguard-api! Contributions, bug reports and feature requests are all
+welcome. This guide covers how the project is organized, how to set up your environment and the conventions it
+follows.
+
+## Ways to contribute
+
+- **Report a bug** or **request a feature** by opening an
+  [issue](https://github.com/ikergcalvino/wireguard-api/issues/new/choose).
+- **Report a security vulnerability** privately, as described in the [security policy](SECURITY.md).
+- **Open a pull request** to fix a bug, add a feature, or improve the documentation, the tests or the CI.
+
+## How the code is organized
+
+```
+api/
+├── main.py           # FastAPI app: middleware, exception handlers and routers
+├── routers/          # HTTP layer: one module per resource (interfaces, peers)
+├── models/           # Pydantic models and validation patterns
+└── services/
+    └── wireguard.py  # Every call to wg and wg-quick
+```
+
+- **Routers** translate HTTP requests into service calls and service results into responses. They never run
+  commands themselves.
+- **`services/wireguard.py`** is the only module that runs `wg` or `wg-quick`, always through `_run()`, with an
+  argument list and never a shell. Secrets such as private and preshared keys go through stdin, never as
+  arguments.
+- **The API does not write or parse config files.** `wg-quick` owns the interface lifecycle and the `.conf`
+  files; everything else runs against the live kernel state with `wg show` and `wg set`. Please keep it that way.
+- **Validate input in the models.** Anything that reaches `wg` must first be checked by a Pydantic validator or a
+  path parameter pattern.
 
 ## Development setup
 
 ```bash
 git clone https://github.com/ikergcalvino/wireguard-api.git
 cd wireguard-api
-python -m venv .venv && source .venv/bin/activate
+
+python -m venv .venv
+source .venv/bin/activate
+
 make install-dev   # pip install -e . --group dev (needs pip 25.1+)
 ```
 
-## Workflow
+wireguard-api supports Python **3.11** and later. The development tools are
+[dependency groups](https://packaging.python.org/en/latest/specifications/dependency-groups/) in `pyproject.toml`
+(`lint`, `test`, `type`, and `dev` with all of them), so they are not published with the package.
 
-1. Fork the repo and create a branch from `develop`.
-2. Make your changes.
-3. Run all checks:
+## Quality checks
 
-   ```bash
-   make check   # lint + type + test
-   ```
+CI runs these checks on every push and pull request to `main` and `develop`, with the tests on every supported
+Python version, and builds and smoke-tests the Docker image. Run them locally before pushing:
 
-4. Open a pull request against `develop`.
+```bash
+make check                # all of the below
+make lint                 # ruff check and ruff format --check (use `make format` to fix)
+make type                 # ty check
+make test                 # pytest, with a coverage threshold of 90%
+docker compose build      # build the Docker image
+```
 
-## Coding standards
+- Line length is 120 and imports are sorted by ruff.
+- pytest turns warnings into errors.
+- Tests mock `_run()`, so no WireGuard interface or root access is needed. Add tests for new features and bug
+  fixes, at the service level and through the HTTP API.
 
-- **Formatter / Linter**: [Ruff](https://docs.astral.sh/ruff/) — run `make format` before committing.
-- **Type checking**: [ty](https://github.com/astral-sh/ty) — run `make type`.
-- **Tests**: [pytest](https://docs.pytest.org/) — run `make test`. Add tests for new features and bug fixes.
-- **Commits**: Use clear, concise commit messages.
+## Branching and pull requests
 
-## Reporting bugs
+- Branch off **`develop`** and target your pull request at **`develop`**. `main` is reserved for releases.
+- Keep pull requests focused: one logical change per PR.
+- Fill in the PR template and make sure the checks pass before requesting review. If your change modifies or
+  removes public API (endpoints, request or response fields, status codes or configuration variables), mark it as
+  a breaking change.
+- Commit messages follow a [Conventional Commits](https://www.conventionalcommits.org/) style (`feat:`, `fix:`,
+  `docs:`, `ci:`, `build:`, `deps:`, …).
 
-Please use the [Bug Report](https://github.com/ikergcalvino/wireguard-api/issues/new?template=bug_report.yml) issue template.
+## License
 
-## Requesting features
-
-Please use the [Feature Request](https://github.com/ikergcalvino/wireguard-api/issues/new?template=feature_request.yml) issue template.
+By contributing, you agree that your contributions will be licensed under the [MIT License](LICENSE).
