@@ -1,30 +1,33 @@
 # wireguard-api
 
-REST API to manage [WireGuard](https://www.wireguard.com/) interfaces and peers on the host, built with [FastAPI](https://fastapi.tiangolo.com/).
+[![CI](https://github.com/ikergcalvino/wireguard-api/actions/workflows/ci.yml/badge.svg)](https://github.com/ikergcalvino/wireguard-api/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/ikergcalvino/wireguard-api)](https://github.com/ikergcalvino/wireguard-api/blob/main/LICENSE)
 
-The API runs inside a Docker container with `network_mode: host`, giving it direct access to the host's network stack. It wraps `wg` and `wg-quick` commands using safe subprocess execution (no shell interpolation) to prevent command injection.
+REST API to manage [WireGuard](https://www.wireguard.com/) interfaces and peers on the host, built with
+[FastAPI](https://fastapi.tiangolo.com/).
+
+The API is a thin layer over WireGuard's own tools: `wg-quick` brings interfaces up and down and saves them, and
+everything else runs against the live kernel state with `wg show` and `wg set`. It never writes or parses config
+files itself: the `.conf` files in `/etc/wireguard` are yours to manage.
 
 ## Features
 
-- **CRUD for interfaces** — create, read, update, delete WireGuard interfaces (active and inactive)
-- **CRUD for peers** — add, update, remove, and list peers on any interface (active and inactive)
-- **Lifecycle actions** — bring interfaces up/down and persist runtime changes
-- **Auto-save** — peer changes are automatically persisted to `.conf` files
-- **Offline visibility** — interfaces and peers from `.conf` files are visible even when not running
-- **Input validation** — interface names and WireGuard keys are validated with Pydantic
-- **Command injection safe** — all subprocess calls use `exec` with argument lists, never shell
-- **Optional API Key auth** — protect endpoints with `X-API-Key` header
-- **CORS support** — configurable origins for frontend integration
-- **Structured logging** — timestamped, leveled logs configurable via environment
-- **Minimal Docker image** — single-stage `python:3.14-alpine`
+- **Runtime management** — inspect interfaces and add, update or remove peers on running interfaces
+- **Lifecycle actions** — bring interfaces up and down and save their runtime state with `wg-quick`
+- **Explicit persistence** — runtime changes are written to the `.conf` file only when you call `save`
+- **Offline visibility** — interfaces with a `.conf` file are listed even when they are down
+- **Input validation** — interface names, WireGuard keys, CIDRs and fwmarks are validated before reaching `wg`
+- **No shell** — every command runs with an argument list; secrets are passed through stdin
+- **Optional API key auth** — protect endpoints with the `X-API-Key` header
+- **Docker image** — `python:3.15-alpine` with `wireguard-tools`, for `linux/amd64` and `linux/arm64`
 
 ## Prerequisites
 
 Regardless of the installation method, the **host** must have:
 
-- WireGuard kernel module loaded (`sudo modprobe wireguard`)
-- IP forwarding enabled (`sysctl net.ipv4.ip_forward=1`)
-- `/etc/wireguard` directory with appropriate permissions
+- The WireGuard kernel module (`sudo modprobe wireguard`)
+- IP forwarding enabled if the host routes traffic for peers (`sysctl net.ipv4.ip_forward=1`)
+- One `.conf` file per interface in `/etc/wireguard` (see `wg-quick(8)`)
 
 ## Installation
 
@@ -35,13 +38,17 @@ cd wireguard-api
 
 ### Docker (recommended)
 
-Requires Docker and Docker Compose.
+Requires Docker and Docker Compose. The container uses the host network and the `NET_ADMIN` capability, so it
+manages the host's WireGuard interfaces directly.
 
 ```bash
 make up        # or: docker compose up -d --build
 make down      # stop
 make logs      # follow logs
 ```
+
+Each [release](https://github.com/ikergcalvino/wireguard-api/releases) also publishes the image to
+`ghcr.io/ikergcalvino/wireguard-api`.
 
 ### Native / Bare metal
 
@@ -54,9 +61,7 @@ make run       # uvicorn on 0.0.0.0:8000
 ```
 
 > [!IMPORTANT]
-> The process needs `CAP_NET_ADMIN` to manage WireGuard interfaces. Run with `sudo` or grant the capability to the Python binary.
-
-The API will be available at `http://localhost:8000` (or your configured `WG_API_PORT`).
+> The process needs root (or `CAP_NET_ADMIN` and access to `/etc/wireguard`) to manage WireGuard interfaces.
 
 ## API Reference
 
@@ -66,16 +71,20 @@ Interactive docs: `/docs` (Swagger UI) and `/redoc` (ReDoc).
 
 ### Interfaces
 
-| Method   | Path                             | Description                     |
-|----------|----------------------------------|---------------------------------|
-| `GET`    | `/api/v1/interfaces`             | List all interfaces (up & down) |
-| `POST`   | `/api/v1/interfaces`             | Create interface (.conf + up)   |
-| `GET`    | `/api/v1/interfaces/{name}`      | Get interface details           |
-| `PUT`    | `/api/v1/interfaces/{name}`      | Update interface config         |
-| `DELETE` | `/api/v1/interfaces/{name}`      | Delete interface (down + rm)    |
-| `POST`   | `/api/v1/interfaces/{name}/up`   | Bring interface up              |
-| `POST`   | `/api/v1/interfaces/{name}/down` | Bring interface down            |
-| `POST`   | `/api/v1/interfaces/{name}/save` | Persist runtime to .conf        |
+| Method  | Path                             | Description                                                 |
+|---------|----------------------------------|-------------------------------------------------------------|
+| `GET`   | `/api/v1/interfaces`             | List running interfaces and those with a `.conf` file       |
+| `GET`   | `/api/v1/interfaces/{name}`      | Get an interface                                            |
+| `PATCH` | `/api/v1/interfaces/{name}`      | Update `private_key`, `listen_port` or `fw_mark` at runtime |
+| `POST`  | `/api/v1/interfaces/{name}/up`   | Bring the interface up (`wg-quick up`)                      |
+| `POST`  | `/api/v1/interfaces/{name}/down` | Bring the interface down (`wg-quick down`)                  |
+| `POST`  | `/api/v1/interfaces/{name}/save` | Save the runtime state to its `.conf` (`wg-quick save`)     |
+
+An interface has a `status` of `"up"` or `"down"`. Running interfaces also report `public_key`, `listen_port`,
+`fw_mark` and `num_peers`; an interface that only has a `.conf` file is reported by name. `PATCH` changes only the
+fields you send, and the interface must be up.
+
+Interfaces are not created or deleted through the API: add or remove their `.conf` files in `/etc/wireguard`.
 
 ### Peers
 
@@ -87,32 +96,30 @@ Interactive docs: `/docs` (Swagger UI) and `/redoc` (ReDoc).
 | `PUT`    | `/api/v1/interfaces/{iface}/peers/{public_key}` | Update peer |
 | `DELETE` | `/api/v1/interfaces/{iface}/peers/{public_key}` | Remove peer |
 
+Peers are managed on running interfaces only. `POST` requires `public_key` and `allowed_ips`; `PUT` sets the fields
+you send. `preshared_key` is write-only: it is accepted but never returned. Public keys can be used in the path as
+they are, even when they contain `/`.
+
 > [!NOTE]
-> `POST`, `PUT`, and `DELETE` peer operations automatically persist changes to the `.conf` file.
-> If auto-save fails, the response includes an `X-Save-Warning` header.
->
-> Interface responses include a `status` field (`"up"` or `"down"`) indicating whether the interface is currently running.
+> Peer and interface changes apply to the running interface only. Call `POST /api/v1/interfaces/{name}/save` to
+> persist them, or they are lost when the interface goes down.
 
 ### Other
 
-| Method | Path             | Description  |
-|--------|------------------|--------------|
-| `GET`  | `/api/v1`        | API info     |
-| `GET`  | `/api/v1/health` | Health check |
+| Method | Path             | Description               |
+|--------|------------------|---------------------------|
+| `GET`  | `/api/v1`        | API info                  |
+| `GET`  | `/api/v1/health` | Health check (no API key) |
+
+When `wg` or `wg-quick` fails, the API answers `400` with the command's error message as `detail`. Invalid input
+is rejected with `422`.
 
 ## Examples
 
 ```bash
-# Create an interface
-curl -X POST http://localhost:8000/api/v1/interfaces \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: your-secret-api-key" \
-  -d '{
-    "name": "wg0",
-    "address": "10.0.0.1/24",
-    "listen_port": 51820,
-    "private_key": "<server-private-key>"
-  }'
+# Bring up an interface defined in /etc/wireguard/wg0.conf
+curl -X POST http://localhost:8000/api/v1/interfaces/wg0/up \
+  -H "X-API-Key: your-secret-api-key"
 
 # Add a peer
 curl -X POST http://localhost:8000/api/v1/interfaces/wg0/peers \
@@ -123,39 +130,41 @@ curl -X POST http://localhost:8000/api/v1/interfaces/wg0/peers \
     "allowed_ips": "10.0.0.2/32"
   }'
 
-# Save runtime state to .conf (usually automatic after peer changes)
+# Change the listen port of the running interface
+curl -X PATCH http://localhost:8000/api/v1/interfaces/wg0 \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your-secret-api-key" \
+  -d '{"listen_port": 51821}'
+
+# Persist the runtime state to /etc/wireguard/wg0.conf
 curl -X POST http://localhost:8000/api/v1/interfaces/wg0/save \
   -H "X-API-Key: your-secret-api-key"
-
-# List all interfaces (both running and stopped)
-curl http://localhost:8000/api/v1/interfaces \
-  -H "X-API-Key: your-secret-api-key"
-
 ```
 
 ## Configuration
 
-| Variable          | Default          | Description                                                        |
-|-------------------|------------------|--------------------------------------------------------------------|
-| `WG_API_KEY`      | (empty)          | API key for authentication; if empty, authentication is disabled   |
-| `WG_API_PORT`     | `8000`           | API server port (used by Makefile and docker-compose)              |
-| `WG_LOG_LEVEL`    | `INFO`           | Log level: DEBUG, INFO, WARNING, ERROR                             |
-| `WG_CORS_ORIGINS` | `*`              | Comma-separated allowed CORS origins                               |
-| `WG_CONFIG_DIR`   | `/etc/wireguard` | Path to WireGuard configuration directory                          |
+| Variable          | Default          | Description                                                      |
+|-------------------|------------------|------------------------------------------------------------------|
+| `WG_API_KEY`      | (empty)          | API key for authentication; if empty, authentication is disabled |
+| `WG_LOG_LEVEL`    | `INFO`           | Log level: DEBUG, INFO, WARNING, ERROR                           |
+| `WG_CORS_ORIGINS` | `*`              | Comma-separated allowed CORS origins                             |
+| `WG_CONFIG_DIR`   | `/etc/wireguard` | Directory with the WireGuard `.conf` files                       |
+| `UVICORN_HOST`    | `0.0.0.0`        | Address the server listens on (Docker image and `make run`)      |
+| `UVICORN_PORT`    | `8000`           | Port the server listens on (Docker image and `make run`)         |
 
 ## Project Structure
 
 ```
 wireguard-api/
 ├── api/
-│   ├── config.py          # Centralized settings (pydantic-settings)
-│   ├── dependencies.py    # Shared FastAPI dependencies (API key auth)
+│   ├── config.py          # Settings (pydantic-settings, WG_ prefix)
+│   ├── dependencies.py    # API key authentication
 │   ├── exceptions.py      # Global exception handlers
 │   ├── logging.py         # Logging configuration (dictConfig)
 │   ├── main.py            # FastAPI app, middleware, routes
 │   ├── models/
 │   │   ├── __init__.py    # Shared validation patterns
-│   │   ├── interfaces.py  # Interface model
+│   │   ├── interfaces.py  # Interface and InterfaceUpdate models
 │   │   └── peers.py       # Peer model
 │   ├── routers/
 │   │   ├── __init__.py    # Shared path parameter types
@@ -163,58 +172,43 @@ wireguard-api/
 │   │   └── peers.py       # Peer endpoints
 │   └── services/
 │       ├── __init__.py    # Public service exports
-│       └── wireguard.py   # wg/wg-quick subprocess wrappers
+│       └── wireguard.py   # wg / wg-quick subprocess wrappers
 ├── tests/                 # pytest test suite
-├── .github/               # CI workflow, issue & PR templates
+├── .github/               # CI and publish workflows, issue and PR templates
 ├── Dockerfile
 ├── docker-compose.yml
-├── pyproject.toml         # Project metadata, dependencies & tool config
+├── pyproject.toml         # Project metadata, dependencies and tool config
 └── Makefile               # Dev shortcuts
 ```
 
 ## Development
 
+See [CONTRIBUTING.md](CONTRIBUTING.md). In short:
+
 ```bash
 python -m venv .venv && source .venv/bin/activate
 make install-dev   # pip install -e . --group dev (needs pip 25.1+)
-```
-
-```bash
-make dev       # run with hot reload
-make lint      # ruff check
-make format    # ruff format
-make type      # ty check
-make test      # pytest
+make dev           # run with hot reload on localhost
+make check         # ruff, ty and pytest
 ```
 
 ## How It Works
 
-The API is stateless. It delegates everything to WireGuard's own tooling:
-
-- **Interfaces** are managed via `wg-quick up/down/save`, `wg syncconf` (live updates), and `wg show`
-- **Peers** are managed via `wg set` and inspected via `wg show dump`
-- The `.conf` files in `/etc/wireguard` are the source of truth at startup
-- The kernel WireGuard interface is the source of truth at runtime
-- **Down interfaces** are read directly from `.conf` files, so manually added configs are visible immediately
-- **Peer changes** (`POST`, `PUT`, `DELETE`) trigger an automatic `wg-quick save` to persist the change
-- **Interface updates** (`PUT`) create a `.conf.bak` backup and restore it on failure
-
-The Docker container runs with `network_mode: host` and `NET_ADMIN` capability, allowing it to manage the host's WireGuard interfaces directly without running WireGuard inside the container.
+- **Lifecycle** — `up`, `down` and `save` run `wg-quick`, which reads `/etc/wireguard/<name>.conf`, including its
+  `Address`, `DNS`, routes and `PreUp`/`PostUp` hooks
+- **Runtime** — interface details and peers come from `wg show <name> dump`; changes are applied with `wg set`
+- **Persistence** — `wg-quick save` rewrites the `.conf` file from the running interface, keeping its `wg-quick`
+  settings; nothing is saved automatically
+- **Down interfaces** — any `<name>.conf` in the config directory is listed as `down` without reading its contents
 
 ## Security
 
-- All subprocess calls use `create_subprocess_exec` with argument lists (no shell injection)
-- Interface names validated against `^[a-zA-Z0-9_=+.-]{1,15}$`
-- WireGuard keys validated as proper base64-encoded 32-byte keys
-- Private keys are never exposed in API responses
-- Preshared keys passed via stdin to avoid process list exposure
-- Config files written with `0600` permissions
-- Container requires only `NET_ADMIN` capability
+Read [SECURITY.md](SECURITY.md) before exposing the API. In short:
 
-> [!CAUTION]
-> The `PreUp`, `PostUp`, `PreDown`, and `PostDown` fields are executed by `bash` via `wg-quick`.
-> An authenticated user can set arbitrary commands through these fields. In multi-tenant or untrusted environments,
-> consider restricting access to the API key or disabling these fields at the application level.
+- Set `WG_API_KEY`: without it, anyone who can reach the port controls the host's WireGuard interfaces and peers
+- Keep the API off untrusted networks and terminate TLS in a reverse proxy in front of it
+- Interface names, keys, CIDRs and fwmarks are validated, and commands never go through a shell
+- Private and preshared keys are never returned by the API, and are passed to `wg` through stdin
 
 ## License
 
