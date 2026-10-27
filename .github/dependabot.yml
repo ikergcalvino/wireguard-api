@@ -12,8 +12,10 @@ updates:
       runtime:
         patterns:
           - "fastapi"
+          - "httptools"
           - "pydantic*"
-          - "uvicorn*"
+          - "uvicorn"
+          - "uvloop"
       dev:
         patterns:
           - "httpx"
