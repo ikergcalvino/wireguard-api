@@ -28,7 +28,7 @@ async def _run(args: list[str], stdin_data: bytes | None = None) -> tuple[str, s
             proc.communicate(input=stdin_data),
             timeout=_CMD_TIMEOUT,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         proc.kill()
         await proc.wait()
         logger.error("cmd %s timed out after %ds", args, _CMD_TIMEOUT)

@@ -7,7 +7,7 @@ name = "wireguard-api"
 version = "0.1.0"
 description = "REST API to manage WireGuard interfaces and peers on the host"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = "MIT"
 authors = [
   { name = "Iker García Calviño", email = "iker.gcalvino@udc.es" },
@@ -37,8 +37,8 @@ Repository = "https://github.com/ikergcalvino/wireguard-api"
 Issues = "https://github.com/ikergcalvino/wireguard-api/issues"
 Changelog = "https://github.com/ikergcalvino/wireguard-api/releases"
 
+# Ruff and ty take the target Python version from `requires-python`.
 [tool.ruff]
-target-version = "py310"
 line-length = 120
 
 [tool.ruff.lint]

@@ -45,7 +45,7 @@ make logs      # follow logs
 
 ### Native / Bare metal
 
-Requires Python 3.10+ and `wireguard-tools` installed on the host.
+Requires Python 3.11+ and `wireguard-tools` installed on the host.
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
