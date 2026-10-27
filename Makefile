@@ -31,8 +31,8 @@ lint: ## Run linter and format check
 format: ## Auto-format code
 	ruff format .
 
-test: ## Run tests
-	pytest -v
+test: ## Run tests with coverage
+	pytest
 
 type: ## Run type checker
 	ty check
@@ -40,7 +40,7 @@ type: ## Run type checker
 check: lint type test ## Run all checks (lint + type + test)
 
 clean: ## Remove build artifacts and caches
-	rm -rf build/ dist/ *.egg-info .pytest_cache
+	rm -rf build/ dist/ *.egg-info .pytest_cache .ruff_cache .coverage htmlcov
 	find . -type d -name __pycache__ -exec rm -rf {} +
 
 # ---------------------------------------------------------------------------

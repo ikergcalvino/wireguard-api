@@ -9,10 +9,26 @@ description = "REST API to manage WireGuard interfaces and peers on the host"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
+license-files = ["LICENSE"]
 authors = [
   { name = "Iker García Calviño", email = "iker.gcalvino@udc.es" },
 ]
-
+keywords = ["wireguard", "vpn", "rest-api", "fastapi", "networking", "wg-quick"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Framework :: FastAPI",
+  "Intended Audience :: System Administrators",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Programming Language :: Python :: 3.15",
+  "Topic :: System :: Networking",
+  "Topic :: System :: Systems Administration",
+]
 dependencies = [
   "fastapi==0.162.0",
   # Only the uvicorn[standard] extras the API uses: uvloop and httptools.
@@ -23,9 +39,19 @@ dependencies = [
   "pydantic-settings==2.16.1",
 ]
 
-[dependency-groups]
+[project.urls]
+Homepage = "https://github.com/ikergcalvino/wireguard-api"
+Documentation = "https://github.com/ikergcalvino/wireguard-api#readme"
+Repository = "https://github.com/ikergcalvino/wireguard-api.git"
+Issues = "https://github.com/ikergcalvino/wireguard-api/issues"
+Changelog = "https://github.com/ikergcalvino/wireguard-api/releases"
+
+# --- Development dependencies -----------------------------------------------
+# PEP 735 groups: not published with the package. Install with `pip install --group <name>`.
 # Lint and type tools are pinned: a new release can change their verdict and
 # break CI on its own. Dependabot bumps them in a PR where CI checks them.
+
+[dependency-groups]
 lint = ["ruff==0.17.3"]
 test = ["pytest>=9.1.1", "pytest-asyncio>=1.4.1", "pytest-cov>=7.1.0", "httpx>=0.28.1"]
 type = ["ty==0.0.92"]
@@ -35,12 +61,14 @@ dev = [
   { include-group = "type" },
 ]
 
-[project.urls]
-Repository = "https://github.com/ikergcalvino/wireguard-api"
-Issues = "https://github.com/ikergcalvino/wireguard-api/issues"
-Changelog = "https://github.com/ikergcalvino/wireguard-api/releases"
+# --- Packaging ---------------------------------------------------------------
 
+[tool.setuptools.packages.find]
+include = ["api*"]
+
+# --- Linting and type checking -----------------------------------------------
 # Ruff and ty take the target Python version from `requires-python`.
+
 [tool.ruff]
 line-length = 120
 
@@ -57,6 +85,22 @@ known-first-party = ["api"]
 [tool.ty.src]
 include = ["api"]
 
+# --- Testing -----------------------------------------------------------------
+
 [tool.pytest.ini_options]
-asyncio_mode = "auto"
+minversion = "9.0"
 testpaths = ["tests"]
+addopts = ["-ra", "--strict-config", "--strict-markers", "--cov"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+filterwarnings = ["error"]
+xfail_strict = true
+
+[tool.coverage.run]
+source = ["api"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+fail_under = 90
