@@ -37,7 +37,9 @@ async def create_peer(iface: IfaceName, body: Peer):
     return await _get_peer_after_change(iface, body.public_key)
 
 
-@router.get("/{public_key}", response_model=Peer)
+# Public keys are base64 and often contain '/', so the key segment uses the
+# path converter; WgKey still validates the whole value.
+@router.get("/{public_key:path}", response_model=Peer)
 async def get_peer(iface: IfaceName, public_key: WgKey):
     peer = await wg.get_peer(iface, public_key)
     if not peer:
@@ -45,7 +47,7 @@ async def get_peer(iface: IfaceName, public_key: WgKey):
     return peer
 
 
-@router.put("/{public_key}", response_model=Peer)
+@router.put("/{public_key:path}", response_model=Peer)
 async def update_peer(iface: IfaceName, public_key: WgKey, body: Peer):
     stderr, rc = await wg.set_peer(
         iface=iface,
@@ -60,7 +62,7 @@ async def update_peer(iface: IfaceName, public_key: WgKey, body: Peer):
     return await _get_peer_after_change(iface, public_key)
 
 
-@router.delete("/{public_key}", status_code=204)
+@router.delete("/{public_key:path}", status_code=204)
 async def delete_peer(iface: IfaceName, public_key: WgKey):
     stderr, rc = await wg.delete_peer(iface, public_key)
     if rc != 0:
