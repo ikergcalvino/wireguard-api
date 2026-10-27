@@ -71,5 +71,16 @@ jobs:
         with:
           context: .
           push: false
+          load: true
+          tags: wireguard-api:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      # Check that the app starts and that the image ships the WireGuard tools.
+      - name: Smoke test the container
+        run: |
+          docker run -d --name wireguard-api -p 8000:8000 wireguard-api:ci
+          curl -fsS --retry 15 --retry-delay 1 --retry-all-errors http://localhost:8000/api/v1/health | tee health.json
+          jq -e '.checks.wg == "ok" and .checks.wg_quick == "ok"' health.json
+      - name: Container logs
+        if: failure()
+        run: docker logs wireguard-api
