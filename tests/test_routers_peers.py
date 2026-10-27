@@ -173,3 +173,39 @@ class TestSlashInPublicKey:
     async def test_extra_segments_rejected(self, client):
         r = await client.get(f"/api/v1/interfaces/wg0/peers/{SLASH_KEY}/extra")
         assert r.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Preshared keys are write-only
+# ---------------------------------------------------------------------------
+
+
+class TestPresharedKeyNotExposed:
+    DUMP = f"PRIVATE\tPUBLIC\t51820\toff\n{VALID_KEY}\t{VALID_KEY}\t(none)\t10.0.0.2/32\t0\t0\t0\toff"
+
+    async def test_list(self, client):
+        with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=(self.DUMP, "", 0)):
+            r = await client.get("/api/v1/interfaces/wg0/peers")
+            assert r.status_code == 200
+            assert "preshared_key" not in r.json()[0]
+
+    async def test_get(self, client):
+        with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=(self.DUMP, "", 0)):
+            r = await client.get(f"/api/v1/interfaces/wg0/peers/{VALID_KEY}")
+            assert "preshared_key" not in r.json()
+
+    async def test_create_accepts_but_does_not_return_it(self, client):
+        with patch("api.services.wireguard._run", new_callable=AsyncMock) as mock_run:
+            mock_run.side_effect = [("", "", 0), (self.DUMP, "", 0)]
+            r = await client.post(
+                "/api/v1/interfaces/wg0/peers",
+                json={"public_key": VALID_KEY, "allowed_ips": "10.0.0.2/32", "preshared_key": VALID_KEY},
+            )
+            assert r.status_code == 201
+            assert "preshared_key" not in r.json()
+            assert mock_run.call_args_list[0][1]["stdin_data"] == VALID_KEY.encode()
+
+    async def test_schema_is_write_only(self, client):
+        schemas = (await client.get("/openapi.json")).json()["components"]["schemas"]
+        assert schemas["Peer-Input"]["properties"]["preshared_key"]["writeOnly"] is True
+        assert "preshared_key" not in schemas["Peer-Output"]["properties"]

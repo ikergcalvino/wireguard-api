@@ -157,8 +157,8 @@ def _parse_peers_dump(lines: list[str]) -> list[Peer]:
         try:
             peers.append(
                 Peer(
+                    # parts[1] is the preshared key: a secret, never read back.
                     public_key=parts[0],
-                    preshared_key=parts[1] if parts[1] != "(none)" else None,
                     endpoint=parts[2] if parts[2] != "(none)" else None,
                     allowed_ips=parts[3] if parts[3] != "(none)" else None,
                     latest_handshake=int(parts[4]) if parts[4] != "0" else None,
