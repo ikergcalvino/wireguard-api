@@ -18,7 +18,7 @@ Closes #
 
 - [ ] This PR changes or removes public API (endpoints, request or response fields, status codes, configuration variables).
 
-<!-- If checked, describe what API clients or deployments must change. -->
+<!-- If checked, describe what API clients or deployments must change, and add the `breaking` label so it appears in the release notes. -->
 
 ## Checklist
 
