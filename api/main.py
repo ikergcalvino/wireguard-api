@@ -29,7 +29,7 @@ app.add_middleware(
     CORSMiddleware,  # ty: ignore[invalid-argument-type]
     allow_origins=cors_origins,
     allow_credentials="*" not in cors_origins,
-    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
     allow_headers=["X-API-Key", "Content-Type"],
 )
 

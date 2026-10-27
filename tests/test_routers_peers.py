@@ -35,7 +35,6 @@ class TestCreatePeer:
         with patch("api.services.wireguard._run", new_callable=AsyncMock) as mock_run:
             mock_run.side_effect = [
                 ("", "", 0),  # wg set
-                ("", "", 0),  # wg-quick save (auto-save)
                 (dump, "", 0),  # wg show dump (get_peer)
             ]
             r = await client.post(
@@ -44,23 +43,6 @@ class TestCreatePeer:
             )
             assert r.status_code == 201
             assert r.json()["public_key"] == VALID_KEY
-            assert "x-save-warning" not in r.headers
-
-    async def test_save_failure_warning(self, client):
-        dump = f"PRIVATE\tPUBLIC\t51820\toff\n{VALID_KEY}\t(none)\t(none)\t10.0.0.2/32\t0\t0\t0\toff"
-        with patch("api.services.wireguard._run", new_callable=AsyncMock) as mock_run:
-            mock_run.side_effect = [
-                ("", "", 0),  # wg set
-                ("", "save error", 1),  # wg-quick save fails
-                (dump, "", 0),  # wg show dump (get_peer)
-            ]
-            r = await client.post(
-                "/api/v1/interfaces/wg0/peers",
-                json={"public_key": VALID_KEY, "allowed_ips": "10.0.0.2/32"},
-            )
-            assert r.status_code == 201
-            assert r.json()["public_key"] == VALID_KEY
-            assert r.headers["x-save-warning"] == "Config not persisted to disk"
 
     async def test_missing_public_key(self, client):
         r = await client.post(
@@ -123,7 +105,6 @@ class TestUpdatePeer:
         with patch("api.services.wireguard._run", new_callable=AsyncMock) as mock_run:
             mock_run.side_effect = [
                 ("", "", 0),  # wg set
-                ("", "", 0),  # wg-quick save (auto-save)
                 (dump, "", 0),  # wg show dump (get_peer)
             ]
             r = await client.put(
@@ -131,22 +112,6 @@ class TestUpdatePeer:
                 json={"allowed_ips": "10.0.0.3/32"},
             )
             assert r.status_code == 200
-            assert "x-save-warning" not in r.headers
-
-    async def test_save_failure_warning(self, client):
-        dump = f"PRIVATE\tPUBLIC\t51820\toff\n{VALID_KEY}\t(none)\t(none)\t10.0.0.3/32\t0\t0\t0\toff"
-        with patch("api.services.wireguard._run", new_callable=AsyncMock) as mock_run:
-            mock_run.side_effect = [
-                ("", "", 0),  # wg set
-                ("", "save error", 1),  # wg-quick save fails
-                (dump, "", 0),  # wg show dump (get_peer)
-            ]
-            r = await client.put(
-                f"/api/v1/interfaces/wg0/peers/{VALID_KEY}",
-                json={"allowed_ips": "10.0.0.3/32"},
-            )
-            assert r.status_code == 200
-            assert r.headers["x-save-warning"] == "Config not persisted to disk"
 
     async def test_extra_field_rejected(self, client):
         r = await client.put(
@@ -167,12 +132,7 @@ class TestDeletePeer:
             r = await client.delete(f"/api/v1/interfaces/wg0/peers/{VALID_KEY}")
             assert r.status_code == 204
 
-    async def test_save_failure_warning(self, client):
-        with patch("api.services.wireguard._run", new_callable=AsyncMock) as mock_run:
-            mock_run.side_effect = [
-                ("", "", 0),  # wg set remove
-                ("", "save error", 1),  # wg-quick save fails
-            ]
+    async def test_wg_failure(self, client):
+        with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "No such device", 1)):
             r = await client.delete(f"/api/v1/interfaces/wg0/peers/{VALID_KEY}")
-            assert r.status_code == 204
-            assert r.headers["x-save-warning"] == "Config not persisted to disk"
+            assert r.status_code == 400

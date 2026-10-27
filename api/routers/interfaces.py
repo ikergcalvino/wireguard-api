@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 
-from api.models.interfaces import Interface
+from api.models.interfaces import Interface, InterfaceUpdate
 from api.routers import IfaceName
 from api.services import wireguard as wg
 
@@ -12,14 +12,6 @@ async def list_interfaces():
     return await wg.list_interfaces()
 
 
-@router.post("", response_model=Interface, status_code=201)
-async def create_interface(body: Interface):
-    stderr, rc = await wg.create_interface(body)
-    if rc != 0:
-        raise HTTPException(status_code=400, detail=stderr)
-    return await wg.get_interface(body.name)
-
-
 @router.get("/{name}", response_model=Interface)
 async def get_interface(name: IfaceName):
     data = await wg.get_interface(name)
@@ -28,10 +20,8 @@ async def get_interface(name: IfaceName):
     return data
 
 
-@router.put("/{name}", response_model=Interface)
-async def update_interface(name: IfaceName, body: Interface):
-    if body.name != name:
-        raise HTTPException(status_code=422, detail="Body name does not match URL name")
+@router.patch("/{name}", response_model=Interface)
+async def update_interface(name: IfaceName, body: InterfaceUpdate):
     stderr, rc = await wg.update_interface(name, body)
     if rc != 0:
         raise HTTPException(status_code=400, detail=stderr)
@@ -39,13 +29,6 @@ async def update_interface(name: IfaceName, body: Interface):
     if not result:
         raise HTTPException(status_code=500, detail="Interface updated but could not be retrieved")
     return result
-
-
-@router.delete("/{name}", status_code=204)
-async def delete_interface(name: IfaceName):
-    stderr, rc = await wg.delete_interface(name)
-    if rc != 0:
-        raise HTTPException(status_code=400, detail=stderr)
 
 
 @router.post("/{name}/up")

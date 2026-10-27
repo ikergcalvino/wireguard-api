@@ -1,6 +1,4 @@
 from api.services.wireguard import (
-    create_interface,
-    delete_interface,
     delete_peer,
     get_interface,
     get_peer,
@@ -14,8 +12,6 @@ from api.services.wireguard import (
 )
 
 __all__ = [
-    "create_interface",
-    "delete_interface",
     "delete_peer",
     "get_interface",
     "get_peer",

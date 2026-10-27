@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from api.models.interfaces import Interface
+from api.models.interfaces import Interface, InterfaceUpdate
 from api.models.peers import Peer
 from tests.conftest import VALID_KEY
 
@@ -14,97 +14,74 @@ INVALID_KEY = "not-a-valid-key"
 
 
 class TestInterface:
-    def test_valid_full(self):
+    def test_runtime_fields(self):
         iface = Interface(
             name="wg0",
-            address="10.0.0.1/24",
+            status="up",
+            public_key=VALID_KEY,
             listen_port=51820,
-            private_key=VALID_KEY,
+            fw_mark="0x1234",
+            num_peers=3,
         )
-        assert iface.name == "wg0"
-        assert iface.address == "10.0.0.1/24"
-        assert iface.listen_port == 51820
+        assert iface.num_peers == 3
+        assert iface.fw_mark == "0x1234"
 
     def test_minimal(self):
-        iface = Interface(name="wg0")
+        iface = Interface(name="wg0", status="down")
         assert iface.num_peers == 0
         assert iface.public_key is None
         assert iface.listen_port is None
 
     def test_invalid_name_too_long(self):
         with pytest.raises(ValidationError, match="1-15"):
-            Interface(name="a" * 16)
+            Interface(name="a" * 16, status="down")
 
     def test_invalid_name_special_chars(self):
         with pytest.raises(ValidationError, match="1-15"):
-            Interface(name="wg@0")
+            Interface(name="wg@0", status="down")
 
     def test_valid_name_with_dots_and_equals(self):
-        iface = Interface(name="wg.vpn=0")
+        iface = Interface(name="wg.vpn=0", status="down")
         assert iface.name == "wg.vpn=0"
-
-    def test_invalid_address(self):
-        with pytest.raises(ValidationError, match="CIDR"):
-            Interface(name="wg0", address="not-an-ip")
-
-    def test_comma_separated_addresses(self):
-        iface = Interface(name="wg0", address="10.0.0.1/24, fd00::1/64")
-        assert iface.address == "10.0.0.1/24, fd00::1/64"
-
-    def test_invalid_private_key(self):
-        with pytest.raises(ValidationError, match="key format"):
-            Interface(name="wg0", private_key=INVALID_KEY)
 
     def test_invalid_public_key(self):
         with pytest.raises(ValidationError, match="key format"):
-            Interface(name="wg0", public_key=INVALID_KEY)
+            Interface(name="wg0", status="up", public_key=INVALID_KEY)
 
-    def test_invalid_listen_port_too_high(self):
+    def test_has_no_private_key(self):
+        assert "private_key" not in Interface.model_fields
+
+
+class TestInterfaceUpdate:
+    def test_valid_full(self):
+        update = InterfaceUpdate(private_key=VALID_KEY, listen_port=51820, fw_mark="off")
+        assert update.listen_port == 51820
+
+    def test_empty(self):
+        assert InterfaceUpdate().model_dump(exclude_unset=True) == {}
+
+    def test_invalid_private_key(self):
+        with pytest.raises(ValidationError, match="key format"):
+            InterfaceUpdate(private_key=INVALID_KEY)
+
+    @pytest.mark.parametrize("port", [0, 70000])
+    def test_invalid_listen_port(self, port):
         with pytest.raises(ValidationError):
-            Interface(name="wg0", listen_port=70000)
+            InterfaceUpdate(listen_port=port)
 
-    def test_invalid_listen_port_zero(self):
-        with pytest.raises(ValidationError):
-            Interface(name="wg0", listen_port=0)
+    @pytest.mark.parametrize("mark", ["off", "0", "1234", "0x1234", "0xFFFFFFFF"])
+    def test_valid_fw_mark(self, mark):
+        assert InterfaceUpdate(fw_mark=mark).fw_mark == mark
 
-    def test_extra_fields_forbidden(self):
+    @pytest.mark.parametrize("mark", ["", "on", "0x", "-1", "0x123456789", "1\nPostUp = id"])
+    def test_invalid_fw_mark(self, mark):
+        with pytest.raises(ValidationError, match="fw_mark"):
+            InterfaceUpdate(fw_mark=mark)
+
+    @pytest.mark.parametrize("field", ["name", "address", "dns", "post_up", "save_config"])
+    def test_wg_quick_and_unknown_fields_forbidden(self, field):
         with pytest.raises(ValidationError, match="extra"):
-            Interface(name="wg0", unknown_field="x")
-
-    def test_ipv6_address(self):
-        iface = Interface(name="wg0", address="fd00::1/64")
-        assert iface.address == "fd00::1/64"
-
-    def test_all_wg_quick_fields(self):
-        iface = Interface(
-            name="wg0",
-            address="10.0.0.1/24",
-            private_key=VALID_KEY,
-            listen_port=51820,
-            dns="1.1.1.1, 8.8.8.8",
-            mtu=1420,
-            table="auto",
-            pre_up="echo pre-up",
-            post_up="iptables -A FORWARD -i wg0 -j ACCEPT",
-            pre_down="echo pre-down",
-            post_down="iptables -D FORWARD -i wg0 -j ACCEPT",
-            save_config=True,
-        )
-        assert iface.dns == "1.1.1.1, 8.8.8.8"
-        assert iface.mtu == 1420
-        assert iface.save_config is True
-
-    def test_runtime_fields(self):
-        iface = Interface(
-            name="wg0",
-            public_key=VALID_KEY,
-            listen_port=51820,
-            address="10.0.0.1/24",
-            fw_mark="0x1234",
-            num_peers=3,
-        )
-        assert iface.num_peers == 3
-        assert iface.fw_mark == "0x1234"
+            InterfaceUpdate(**{field: "x"})
 
 
 # ---------------------------------------------------------------------------
