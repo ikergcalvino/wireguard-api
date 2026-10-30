@@ -71,15 +71,15 @@ Vulnerabilities in wireguard-api's own code, for example:
 - Commands in `PreUp`, `PostUp`, `PreDown` and `PostDown` of the `.conf`
   files. The API does not write config files: whoever controls
   `/etc/wireguard` controls what `wg-quick` runs as root.
-- Insecure setups that the operator explicitly opts into, such as running
-  without an API key or exposing the API to untrusted networks.
+- Insecure setups that the operator explicitly opts into, such as a weak
+  API key or exposing the API to untrusted networks.
 
 ## Running wireguard-api securely
 
-- **Set `WG_API_KEY`.** Authentication is disabled when it is empty, which
-  gives anyone who can reach the port control over the host's WireGuard
-  interfaces and peers. Use a long random value and keep it out of version
-  control.
+- **Use a strong `WG_API_KEY`.** It is required, and the API refuses to
+  start without it, but anyone who has it controls the host's WireGuard
+  interfaces and peers. Use a long random value (e.g.
+  `openssl rand -hex 32`) and keep it out of version control.
 - **Do not expose the API to untrusted networks.** With `network_mode: host`
   it listens on every interface of the host. Restrict it with a firewall,
   bind it to a private address, or put it behind a reverse proxy.

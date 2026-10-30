@@ -18,7 +18,7 @@ files itself: the `.conf` files in `/etc/wireguard` are yours to manage.
 - **Offline visibility** — interfaces with a `.conf` file are listed even when they are down
 - **Input validation** — interface names, WireGuard keys, CIDRs and fwmarks are validated before reaching `wg`
 - **No shell** — every command runs with an argument list; secrets are passed through stdin
-- **Optional API key auth** — protect endpoints with the `X-API-Key` header
+- **API key auth** — every endpoint except the health check requires the `X-API-Key` header
 - **Docker image** — `python:3.15-alpine` with `wireguard-tools`, for `linux/amd64` and `linux/arm64`
 
 ## Prerequisites
@@ -42,6 +42,7 @@ Requires Docker and Docker Compose. The container uses the host network and the 
 manages the host's WireGuard interfaces directly.
 
 ```bash
+echo "WG_API_KEY=$(openssl rand -hex 32)" > .env   # required, read by docker compose
 make up        # or: docker compose up -d --build
 make down      # stop
 make logs      # follow logs
@@ -57,6 +58,7 @@ Requires Python 3.11+ and `wireguard-tools` installed on the host.
 ```bash
 python -m venv .venv && source .venv/bin/activate
 make install   # pip install .
+export WG_API_KEY=$(openssl rand -hex 32)
 make run       # uvicorn on 0.0.0.0:8000
 ```
 
@@ -65,7 +67,7 @@ make run       # uvicorn on 0.0.0.0:8000
 
 ## API Reference
 
-All endpoints are under `/api/v1`. If `WG_API_KEY` is set, include `X-API-Key: <key>` in request headers.
+All endpoints are under `/api/v1` and require the `X-API-Key: <key>` header, except the health check.
 
 Interactive docs: `/docs` (Swagger UI) and `/redoc` (ReDoc).
 
@@ -146,7 +148,7 @@ curl -X POST http://localhost:8000/api/v1/interfaces/wg0/save \
 
 | Variable          | Default          | Description                                                      |
 |-------------------|------------------|------------------------------------------------------------------|
-| `WG_API_KEY`      | (empty)          | API key for authentication; if empty, authentication is disabled |
+| `WG_API_KEY`      | (required)       | API key for authentication, at least 16 characters               |
 | `WG_LOG_LEVEL`    | `INFO`           | Log level: DEBUG, INFO, WARNING, ERROR                           |
 | `WG_CORS_ORIGINS` | `*`              | Comma-separated allowed CORS origins                             |
 | `WG_CONFIG_DIR`   | `/etc/wireguard` | Directory with the WireGuard `.conf` files                       |
@@ -208,7 +210,8 @@ make check         # ruff, ty and pytest
 
 Read [SECURITY.md](SECURITY.md) before exposing the API. In short:
 
-- Set `WG_API_KEY`: without it, anyone who can reach the port controls the host's WireGuard interfaces and peers
+- Use a long random `WG_API_KEY`: anyone who has it controls the host's WireGuard interfaces and peers. The API
+  refuses to start without one
 - Keep the API off untrusted networks and terminate TLS in a reverse proxy in front of it
 - Interface names, keys, CIDRs and fwmarks are validated, and commands never go through a shell
 - Private and preshared keys are never returned by the API, and are passed to `wg` through stdin

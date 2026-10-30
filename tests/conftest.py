@@ -3,13 +3,16 @@ from httpx import ASGITransport, AsyncClient
 
 from api.main import app
 from api.services.wireguard import _lifecycle_locks
+from tests import TEST_API_KEY
 
 VALID_KEY = "YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY="
 
 
 @pytest.fixture
 async def client():
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test", headers={"X-API-Key": TEST_API_KEY}
+    ) as ac:
         yield ac
 
 

@@ -1,9 +1,13 @@
 import shutil
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from httpx import ASGITransport, AsyncClient
+from pydantic import ValidationError
 
+from api.config import Settings, load_settings
 from api.main import app
+from tests import TEST_API_KEY
 from tests.conftest import VALID_KEY
 
 # ---------------------------------------------------------------------------
@@ -59,31 +63,46 @@ class TestMeta:
 
 
 class TestAuth:
-    async def test_no_key_required_when_unset(self, client):
+    @pytest.fixture
+    async def anonymous(self):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            yield ac
+
+    async def test_rejects_missing_key(self, anonymous):
+        r = await anonymous.get("/api/v1/interfaces")
+        assert r.status_code == 403
+
+    @pytest.mark.parametrize("key", ["wrong", "", "test-api-key-012345678", "séc".encode("latin-1")])
+    async def test_rejects_wrong_key(self, anonymous, key):
+        r = await anonymous.get("/api/v1/interfaces", headers={"X-API-Key": key})
+        assert r.status_code == 403
+
+    async def test_accepts_valid_key(self, client):
         with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "", 0)):
             r = await client.get("/api/v1/interfaces")
             assert r.status_code == 200
 
-    async def test_rejects_missing_key(self, client):
-        with patch("api.dependencies.settings") as mock_settings:
-            mock_settings.api_key = "secret"
-            r = await client.get("/api/v1/interfaces")
-            assert r.status_code == 403
+    async def test_health_does_not_need_a_key(self, anonymous):
+        r = await anonymous.get("/api/v1/health")
+        assert r.status_code == 200
 
-    async def test_rejects_wrong_key(self, client):
-        with patch("api.dependencies.settings") as mock_settings:
-            mock_settings.api_key = "secret"
-            r = await client.get("/api/v1/interfaces", headers={"X-API-Key": "wrong"})
-            assert r.status_code == 403
 
-    async def test_accepts_valid_key(self, client):
-        with (
-            patch("api.dependencies.settings") as mock_settings,
-            patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "", 0)),
-        ):
-            mock_settings.api_key = "secret"
-            r = await client.get("/api/v1/interfaces", headers={"X-API-Key": "secret"})
-            assert r.status_code == 200
+class TestSettings:
+    def test_api_key_is_required(self, monkeypatch):
+        monkeypatch.delenv("WG_API_KEY")
+        with pytest.raises(ValidationError, match="api_key"):
+            Settings()
+
+    @pytest.mark.parametrize("key", ["", "short-key"])
+    def test_api_key_must_be_long_enough(self, monkeypatch, key):
+        monkeypatch.setenv("WG_API_KEY", key)
+        with pytest.raises(ValidationError, match="at least 16 characters"):
+            Settings()
+
+    def test_load_settings_exits_with_a_readable_message(self, monkeypatch):
+        monkeypatch.delenv("WG_API_KEY")
+        with pytest.raises(SystemExit, match="^Invalid configuration: WG_API_KEY: Field required$"):
+            load_settings()
 
 
 # ---------------------------------------------------------------------------
@@ -111,7 +130,7 @@ class TestExceptionHandlers:
 
     async def test_internal_value_error_is_not_a_client_error(self):
         transport = ASGITransport(app=app, raise_app_exceptions=False)
-        async with AsyncClient(transport=transport, base_url="http://test") as c:
+        async with AsyncClient(transport=transport, base_url="http://test", headers={"X-API-Key": TEST_API_KEY}) as c:
             with patch("api.services.wireguard._run", new_callable=AsyncMock, side_effect=ValueError("bug")):
                 r = await c.get("/api/v1/interfaces/wg0")
                 assert r.status_code == 500
@@ -119,7 +138,7 @@ class TestExceptionHandlers:
 
     async def test_unhandled_exception_returns_500(self):
         transport = ASGITransport(app=app, raise_app_exceptions=False)
-        async with AsyncClient(transport=transport, base_url="http://test") as c:
+        async with AsyncClient(transport=transport, base_url="http://test", headers={"X-API-Key": TEST_API_KEY}) as c:
             with patch("api.services.wireguard._run", new_callable=AsyncMock, side_effect=RuntimeError("boom")):
                 r = await c.get("/api/v1/interfaces")
                 assert r.status_code == 500

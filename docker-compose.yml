@@ -9,7 +9,8 @@ services:
     volumes:
       - /etc/wireguard:/etc/wireguard:rw
     environment:
-      WG_API_KEY: ""
+      # Required, at least 16 characters. Set it in the shell or in a .env file, e.g. `openssl rand -hex 32`.
+      WG_API_KEY: ${WG_API_KEY:?Set WG_API_KEY to a random string of at least 16 characters}
       WG_LOG_LEVEL: INFO
       WG_CORS_ORIGINS: "*"
       WG_CONFIG_DIR: /etc/wireguard
