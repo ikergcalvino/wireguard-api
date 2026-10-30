@@ -44,7 +44,7 @@ The API runs in Docker. It requires Docker and Docker Compose; the container use
 host.
 
 ```bash
-echo "WG_API_KEY=$(openssl rand -hex 32)" > .env   # required, read by docker compose
+echo "WG_API_KEY=$(openssl rand -hex 32)" > .env   # required; .env can also set the other variables below
 make up        # or: docker compose up -d --build
 make down      # stop
 make logs      # follow logs
