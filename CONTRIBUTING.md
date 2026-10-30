@@ -51,20 +51,28 @@ wireguard-api supports Python **3.11** and later. The development tools are
 ## Quality checks
 
 CI runs these checks on every push and pull request to `main` and `develop`, with the tests on every supported
-Python version, and builds and smoke-tests the Docker image. Run them locally before pushing:
+Python version, and runs the integration tests against the Docker image. Run them locally before pushing:
 
 ```bash
 make check                # all of the below
 make lint                 # ruff check and ruff format --check (use `make format` to fix)
 make type                 # ty check
-make test                 # pytest, with a coverage threshold of 90%
+make test                 # unit tests, with a coverage threshold of 90%
+make integration          # integration tests against the Docker image and real WireGuard
 docker compose build      # build the Docker image
 ```
 
 - Line length is 120 and imports are sorted by ruff.
 - pytest turns warnings into errors.
-- Tests mock `_run()`, so no WireGuard interface or root access is needed. Add tests for new features and bug
+- Unit tests mock `_run()`, so no WireGuard interface or root access is needed. Add tests for new features and bug
   fixes, at the service level and through the HTTP API.
+- Integration tests (`tests/integration/`) run the Docker image against real WireGuard, in its own network
+  namespace so the host's interfaces are never touched. They need Docker and the `wireguard` kernel module, and CI
+  runs them on every push:
+
+  ```bash
+  make integration
+  ```
 
 ## Branching and pull requests
 

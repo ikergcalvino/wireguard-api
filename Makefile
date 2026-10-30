@@ -1,4 +1,4 @@
-.PHONY: help install-dev dev lint format test type check clean build up down logs
+.PHONY: help install-dev dev lint format test integration type check clean build up down logs
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
@@ -21,8 +21,12 @@ lint: ## Run linter and format check
 format: ## Auto-format code
 	ruff format .
 
-test: ## Run tests with coverage
+test: ## Run unit tests with coverage
 	pytest
+
+integration: ## Run integration tests against the Docker image and real WireGuard (needs the wireguard module)
+	docker build -t wireguard-api:integration .
+	tests/integration/run.sh wireguard-api:integration
 
 type: ## Run type checker
 	ty check

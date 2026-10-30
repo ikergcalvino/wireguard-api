@@ -1,0 +1,183 @@
+"""Integration tests against the Docker image and real WireGuard.
+
+They run through tests/integration/run.sh, which starts the image with uvicorn (and so
+uvloop) and these config files in /etc/wireguard:
+- wgtest: a plain interface
+- wgnat: an interface whose PostUp/PostDown use iptables
+- wglink: a symlink to a config file in a subdirectory
+"""
+
+import base64
+import os
+import subprocess
+
+import httpx2
+import pytest
+
+pytestmark = pytest.mark.skipif("WG_API_URL" not in os.environ, reason="needs tests/integration/run.sh")
+
+
+def new_key() -> str:
+    return base64.b64encode(os.urandom(32)).decode()
+
+
+def key_with_slash() -> str:
+    while "/" not in (key := new_key()):
+        pass
+    return key
+
+
+def saved_conf(name: str) -> str:
+    # wg-quick writes config files as root with mode 0600, so read them from inside the container.
+    return subprocess.check_output(
+        ["docker", "exec", os.environ["WG_TEST_CONTAINER"], "cat", f"/etc/wireguard/{name}.conf"], text=True
+    )
+
+
+@pytest.fixture(scope="module")
+def api():
+    headers = {"X-API-Key": os.environ["WG_INTEGRATION_API_KEY"]}
+    with httpx2.Client(base_url=os.environ["WG_API_URL"], headers=headers, timeout=40) as client:
+        yield client
+
+
+@pytest.fixture
+def wgtest(api):
+    """wgtest is up during the test and down afterwards."""
+    assert api.post("/interfaces/wgtest/up").status_code == 200
+    yield "wgtest"
+    api.post("/interfaces/wgtest/down")
+
+
+def add_peer(api, iface: str, **fields) -> httpx2.Response:
+    body = {"public_key": new_key(), "allowed_ips": "10.66.0.2/32", **fields}
+    return api.post(f"/interfaces/{iface}/peers", json=body)
+
+
+# ---------------------------------------------------------------------------
+# System
+# ---------------------------------------------------------------------------
+
+
+def test_health(api):
+    r = api.get("/health")
+    assert r.json() == {
+        "status": "ok",
+        "checks": {"config_dir": "ok", "wg": "ok", "wg_quick": "ok", "wg_access": "ok"},
+    }
+
+
+def test_auth_is_required(api):
+    r = httpx2.get(os.environ["WG_API_URL"] + "/interfaces")
+    assert r.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Interfaces
+# ---------------------------------------------------------------------------
+
+
+def test_lifecycle(api):
+    assert api.get("/interfaces/wgtest").json()["status"] == "down"
+    assert api.post("/interfaces/wgtest/up").status_code == 200
+    assert api.post("/interfaces/wgtest/up").status_code == 409
+    up = api.get("/interfaces/wgtest").json()
+    assert (up["status"], up["listen_port"]) == ("up", 51820)
+    assert api.post("/interfaces/wgtest/down").status_code == 200
+    assert api.post("/interfaces/wgtest/down").status_code == 409
+    assert api.get("/interfaces/wgtest").json()["status"] == "down"
+
+
+def test_list_shows_up_and_down_interfaces(api, wgtest):
+    statuses = {i["name"]: i["status"] for i in api.get("/interfaces").json()}
+    assert statuses == {"wgtest": "up", "wgnat": "down", "wglink": "down"}
+
+
+def test_patch_runtime_settings(api, wgtest):
+    before = api.get("/interfaces/wgtest").json()
+    r = api.patch("/interfaces/wgtest", json={"listen_port": 51999, "fw_mark": "0x10", "private_key": new_key()})
+    assert r.status_code == 200
+    after = r.json()
+    assert (after["listen_port"], after["fw_mark"]) == (51999, "0x10")
+    assert after["public_key"] != before["public_key"]
+    assert "private_key" not in after
+
+
+def test_down_interface_is_a_conflict(api):
+    assert api.get("/interfaces/wgtest/peers").status_code == 409
+    assert api.patch("/interfaces/wgtest", json={"listen_port": 51000}).status_code == 409
+    assert add_peer(api, "wgtest").status_code == 409
+    assert api.post("/interfaces/wgtest/save").status_code == 409
+
+
+def test_unknown_interface_is_not_found(api):
+    assert api.get("/interfaces/nope").status_code == 404
+    assert api.post("/interfaces/nope/up").status_code == 404
+    assert api.get("/interfaces/nope/peers").status_code == 404
+
+
+def test_symlinked_config_file(api):
+    assert api.post("/interfaces/wglink/up").status_code == 200
+    assert api.post("/interfaces/wglink/down").status_code == 200
+
+
+def test_postup_with_iptables(api):
+    assert api.post("/interfaces/wgnat/up").status_code == 200
+    assert api.post("/interfaces/wgnat/down").status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Peers
+# ---------------------------------------------------------------------------
+
+
+def test_peer_with_every_field(api, wgtest):
+    psk = new_key()
+    r = add_peer(
+        api,
+        wgtest,
+        allowed_ips="10.66.0.3/32, fd00::3/128",
+        endpoint="198.51.100.7:51820",
+        preshared_key=psk,
+        persistent_keepalive=25,
+    )
+    assert r.status_code == 201
+    peer = r.json()
+    assert "preshared_key" not in peer
+    assert psk not in r.text
+    assert set(peer["allowed_ips"].split(",")) == {"10.66.0.3/32", "fd00::3/128"}
+    assert (peer["endpoint"], peer["persistent_keepalive"]) == ("198.51.100.7:51820", 25)
+
+
+def test_public_key_with_slash_in_the_path(api, wgtest):
+    key = key_with_slash()
+    assert add_peer(api, wgtest, public_key=key).status_code == 201
+    assert api.get(f"/interfaces/{wgtest}/peers/{key}").json()["public_key"] == key
+    assert api.get(f"/interfaces/{wgtest}/peers/{key.replace('/', '%2F')}").status_code == 200
+    assert api.delete(f"/interfaces/{wgtest}/peers/{key}").status_code == 204
+    assert api.get(f"/interfaces/{wgtest}/peers/{key}").status_code == 404
+
+
+def test_patch_peer(api, wgtest):
+    key = add_peer(api, wgtest).json()["public_key"]
+    r = api.patch(f"/interfaces/{wgtest}/peers/{key}", json={"persistent_keepalive": 15, "preshared_key": new_key()})
+    assert (r.status_code, r.json()["persistent_keepalive"]) == (200, 15)
+
+
+def test_patch_never_creates_a_peer(api, wgtest):
+    key = new_key()
+    assert api.patch(f"/interfaces/{wgtest}/peers/{key}", json={"persistent_keepalive": 15}).status_code == 404
+    assert api.get(f"/interfaces/{wgtest}/peers/{key}").status_code == 404
+
+
+def test_save_persists_runtime_changes(api, wgtest):
+    key = add_peer(api, wgtest, preshared_key=new_key()).json()["public_key"]
+    assert api.post(f"/interfaces/{wgtest}/save").status_code == 200
+    conf = saved_conf(wgtest)
+    assert f"PublicKey = {key}" in conf
+    assert "PresharedKey = " in conf
+    assert "Address = 10.66.0.1/24" in conf
+
+    assert api.post(f"/interfaces/{wgtest}/down").status_code == 200
+    assert api.post(f"/interfaces/{wgtest}/up").status_code == 200
+    assert api.get(f"/interfaces/{wgtest}/peers/{key}").status_code == 200

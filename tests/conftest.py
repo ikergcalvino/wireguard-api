@@ -1,3 +1,4 @@
+import os
 from unittest.mock import patch
 
 import pytest
@@ -6,6 +7,9 @@ from httpx2 import ASGITransport, AsyncClient
 from api.main import app
 from api.services.wireguard import _lifecycle_locks
 from tests import TEST_API_KEY
+
+# The integration tests need a running API and real WireGuard: tests/integration/run.sh sets WG_API_URL.
+collect_ignore = [] if "WG_API_URL" in os.environ else ["integration"]
 
 VALID_KEY = "YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY="
 

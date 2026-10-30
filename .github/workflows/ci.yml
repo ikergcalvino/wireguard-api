@@ -64,28 +64,28 @@ jobs:
       - run: pip install -e . --group test
       - run: pytest
 
-  build-check:
+  # Builds the image and runs tests/integration against it with real WireGuard:
+  # the runner's kernel has the module, and the container gets its own network namespace.
+  integration:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.15"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: python -m pip install --upgrade pip
+      - run: pip install -e . --group test
+      - run: sudo modprobe wireguard
       - uses: docker/setup-buildx-action@v4
       - uses: docker/build-push-action@v7
         with:
           context: .
           push: false
           load: true
-          tags: wireguard-api:ci
+          tags: wireguard-api:integration
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      # Check that the app starts, that the image ships the WireGuard tools and that auth is enforced.
-      - name: Smoke test the container
-        run: |
-          docker run -d --name wireguard-api -e WG_API_KEY=ci-smoke-test-api-key -p 8000:8000 wireguard-api:ci
-          curl -fsS --retry 15 --retry-delay 1 --retry-all-errors http://localhost:8000/api/v1/health | tee health.json
-          jq -e '.checks.wg == "ok" and .checks.wg_quick == "ok"' health.json
-          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8000/api/v1)" = 403
-          curl -fsS -H "X-API-Key: ci-smoke-test-api-key" http://localhost:8000/api/v1
-      - name: Container logs
-        if: failure()
-        run: docker logs wireguard-api
+      - run: tests/integration/run.sh wireguard-api:integration -v
