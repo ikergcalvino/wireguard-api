@@ -31,8 +31,7 @@ Please include:
 
 - A description of the vulnerability and its potential impact.
 - Steps to reproduce or a minimal proof of concept.
-- The affected wireguard-api commit, the deployment method (Docker or bare
-  metal) and the `wireguard-tools` version.
+- The affected wireguard-api commit and the `wireguard-tools` version.
 
 ### What to expect
 
@@ -81,8 +80,8 @@ Vulnerabilities in wireguard-api's own code, for example:
   interfaces and peers. Use a long random value (e.g.
   `openssl rand -hex 32`) and keep it out of version control.
 - **Do not expose the API to untrusted networks.** With `network_mode: host`
-  it listens on every interface of the host. Restrict it with a firewall,
-  bind it to a private address, or put it behind a reverse proxy.
+  it listens on port 8000 of every interface of the host. Restrict it with a
+  firewall, or put it behind a reverse proxy.
 - **Use TLS.** The API serves plain HTTP, so the API key and the keys in
   request bodies travel in clear text. Terminate TLS in a reverse proxy in
   front of it.

@@ -23,7 +23,7 @@ files itself: the `.conf` files in `/etc/wireguard` are yours to manage.
 
 ## Prerequisites
 
-Regardless of the installation method, the **host** must have:
+The **host** must have:
 
 - The WireGuard kernel module (`sudo modprobe wireguard`)
 - IP forwarding enabled if the host routes traffic for peers (`sysctl net.ipv4.ip_forward=1`)
@@ -36,10 +36,9 @@ git clone https://github.com/ikergcalvino/wireguard-api.git
 cd wireguard-api
 ```
 
-### Docker (recommended)
-
-Requires Docker and Docker Compose. The container uses the host network and the `NET_ADMIN` capability, so it
-manages the host's WireGuard interfaces directly.
+The API runs in Docker. It requires Docker and Docker Compose; the container uses the host network and the
+`NET_ADMIN` capability, so it manages the host's WireGuard interfaces directly, and listens on port `8000` of the
+host.
 
 ```bash
 echo "WG_API_KEY=$(openssl rand -hex 32)" > .env   # required, read by docker compose
@@ -50,20 +49,6 @@ make logs      # follow logs
 
 Each [release](https://github.com/ikergcalvino/wireguard-api/releases) also publishes the image to
 `ghcr.io/ikergcalvino/wireguard-api`.
-
-### Native / Bare metal
-
-Requires Python 3.11+ and `wireguard-tools` installed on the host.
-
-```bash
-python -m venv .venv && source .venv/bin/activate
-make install   # pip install .
-export WG_API_KEY=$(openssl rand -hex 32)
-make run       # uvicorn on 0.0.0.0:8000
-```
-
-> [!IMPORTANT]
-> The process needs root (or `CAP_NET_ADMIN` and access to `/etc/wireguard`) to manage WireGuard interfaces.
 
 ## API Reference
 
@@ -154,8 +139,6 @@ curl -X POST http://localhost:8000/interfaces/wg0/save \
 | `WG_LOG_LEVEL`      | `INFO`           | Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL                    |
 | `WG_CORS_ORIGINS`   | `*`              | Comma-separated allowed CORS origins                                |
 | `WG_CONFIG_DIR`     | `/etc/wireguard` | Directory with the WireGuard `.conf` files                          |
-| `UVICORN_HOST`      | `0.0.0.0`        | Address the server listens on (Docker image and `make run`)         |
-| `UVICORN_PORT`      | `8000`           | Port the server listens on (Docker image and `make run`)            |
 | `UVICORN_ROOT_PATH` | (empty)          | Path prefix a reverse proxy publishes the API under, e.g. `/api/v1` |
 
 ### Behind a reverse proxy
@@ -171,7 +154,7 @@ location /api/v1/ {
 ```
 
 ```bash
-UVICORN_ROOT_PATH=/api/v1   # in .env for docker compose, or exported for `make run`
+UVICORN_ROOT_PATH=/api/v1   # in .env, next to WG_API_KEY
 ```
 
 ## Project Structure

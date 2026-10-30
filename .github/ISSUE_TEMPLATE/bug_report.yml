@@ -59,16 +59,6 @@ body:
     attributes:
       value: "### Environment"
 
-  - type: dropdown
-    id: deployment
-    attributes:
-      label: Deployment method
-      options:
-        - Docker (docker compose)
-        - Bare metal
-    validations:
-      required: true
-
   - type: input
     id: os
     attributes:
@@ -90,7 +80,7 @@ body:
     id: wireguard_tools_version
     attributes:
       label: wireguard-tools version
-      description: Output of `wg --version` where the API runs (inside the container if using Docker).
+      description: Output of `docker exec wireguard-api wg --version`.
       placeholder: e.g. wireguard-tools v1.0.20210914
     validations:
       required: true
@@ -99,10 +89,9 @@ body:
     id: docker_version
     attributes:
       label: Docker version
-      description: Only if using Docker.
       placeholder: e.g. 27.1.0
     validations:
-      required: false
+      required: true
 
   - type: input
     id: api_version
