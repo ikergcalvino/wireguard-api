@@ -1,5 +1,6 @@
 import asyncio
 import os
+import pathlib
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -7,13 +8,14 @@ import uvloop
 
 from api.services.wireguard import (
     SECRET_ARG,
+    WireGuardTimeout,
     _conf_path,
     _interface_from_dump,
     _parse_peers_dump,
     _run,
     interface_save,
 )
-from tests.conftest import VALID_KEY
+from tests.conftest import RUNNING_DUMP, VALID_KEY
 
 # ---------------------------------------------------------------------------
 # _run
@@ -47,12 +49,25 @@ class TestRun:
         out, _, rc = await _run(["cat"])
         assert (out, rc) == ("", 0)
 
-    async def test_timeout_returns_error(self):
-        with patch("api.services.wireguard._CMD_TIMEOUT", 0.1):
-            out, err, rc = await _run(["sleep", "10"])
-            assert rc == 1
-            assert "timed out" in err
-            assert out == ""
+    async def test_timeout_raises(self):
+        with (
+            patch("api.services.wireguard._CMD_TIMEOUT", 0.1),
+            pytest.raises(WireGuardTimeout, match="sleep did not finish within 0.1s"),
+        ):
+            await _run(["sleep", "10"])
+
+    async def test_timeout_kills_child_processes_too(self, tmp_path):
+        # wg-quick runs hooks as child processes; a timeout must not leave them behind.
+        pid_file = tmp_path / "child.pid"
+        with (
+            patch("api.services.wireguard._CMD_TIMEOUT", 0.3),
+            pytest.raises(WireGuardTimeout),
+        ):
+            await _run(["sh", "-c", f"sleep 30 & echo $! > {pid_file}; wait"])
+        child = int(pid_file.read_text())
+        await asyncio.sleep(0.1)
+        status = pathlib.Path(f"/proc/{child}/stat")
+        assert not status.exists() or status.read_text().split()[2] == "Z"
 
 
 # ---------------------------------------------------------------------------
@@ -86,10 +101,11 @@ class TestConfPath:
         (tmp_path / "confs" / "wg0.conf").symlink_to(target)
         with (
             patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path / "confs"),
-            patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "", 0)) as mock_run,
+            patch("api.services.wireguard._run", new_callable=AsyncMock) as mock_run,
         ):
+            mock_run.side_effect = [(RUNNING_DUMP, "", 0), ("", "", 0)]
             await interface_save("wg0")
-        mock_run.assert_awaited_once_with(["wg-quick", "save", "wg0"], secret=None)
+        mock_run.assert_awaited_with(["wg-quick", "save", "wg0"], secret=None)
 
 
 # ---------------------------------------------------------------------------

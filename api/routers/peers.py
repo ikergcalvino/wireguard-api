@@ -12,10 +12,7 @@ router = APIRouter(
 
 @router.get("")
 async def list_peers(iface: IfaceName) -> list[Peer]:
-    peers = await wg.list_peers(iface)
-    if peers is None:
-        raise HTTPException(status_code=404, detail=f"Interface '{iface}' not found")
-    return peers
+    return await wg.list_peers(iface)
 
 
 @router.post("", status_code=201)

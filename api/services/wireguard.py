@@ -1,6 +1,8 @@
 import asyncio
+import contextlib
 import logging
 import os
+import signal
 from pathlib import Path
 
 from api.config import settings
@@ -16,6 +18,14 @@ _CMD_TIMEOUT = 30
 # Placeholder in a command's arguments for the path of the secret passed to _run().
 SECRET_ARG = "<secret>"  # noqa: S105 - a placeholder, not a secret
 
+# wg's errors for a name with no running WireGuard interface: none by that name,
+# or a link of another type (e.g. lo).
+_NOT_RUNNING_ERRORS = ("No such device", "Not supported")
+# wg's error without CAP_NET_ADMIN.
+_PERMISSION_ERROR = "Operation not permitted"
+# A valid interface name that is never created, used to probe access to WireGuard.
+_PROBE_NAME = "wgapi-probe"
+
 # wg-quick up/down/save on the same interface must not overlap: concurrent saves
 # share a temporary file, and up/down race each other. Locks live in this process,
 # so the API must run with a single worker.
@@ -23,10 +33,24 @@ _lifecycle_locks: dict[str, asyncio.Lock] = {}
 
 
 class InterfaceNotFound(Exception):
-    """The interface has no config file, so wg-quick cannot manage it."""
+    """No WireGuard interface is running with this name and it has no config file."""
 
     def __init__(self, name: str) -> None:
         super().__init__(f"Interface '{name}' not found")
+
+
+class InterfaceNotRunning(Exception):
+    """The interface has a config file but is down."""
+
+    def __init__(self, name: str) -> None:
+        super().__init__(f"Interface '{name}' is not running")
+
+
+class InterfaceAlreadyRunning(Exception):
+    """wg-quick up on an interface that is already up."""
+
+    def __init__(self, name: str) -> None:
+        super().__init__(f"Interface '{name}' is already running")
 
 
 class WireGuardError(Exception):
@@ -34,7 +58,11 @@ class WireGuardError(Exception):
 
 
 class WireGuardUnavailable(Exception):
-    """A wg or wg-quick command could not be executed at all."""
+    """wg or wg-quick cannot be used at all: not installed, or no CAP_NET_ADMIN."""
+
+
+class WireGuardTimeout(Exception):
+    """A wg or wg-quick command did not finish in time."""
 
 
 async def _run(args: list[str], secret: str | None = None) -> tuple[str, str, int]:
@@ -53,12 +81,14 @@ async def _run(args: list[str], secret: str | None = None) -> tuple[str, str, in
     try:
         # Not stdin: under uvloop, writing to the stdin of a command that reads
         # /dev/stdin itself (as wg does) fails with "the handler is closed".
+        # A new session lets a timeout kill wg-quick together with its hooks.
         proc = await asyncio.create_subprocess_exec(
             *args,
             stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             pass_fds=(read_fd,) if read_fd is not None else (),
+            start_new_session=True,
         )
     except OSError as exc:
         logger.error("cannot execute %s: %s", args[0], exc)
@@ -70,10 +100,11 @@ async def _run(args: list[str], secret: str | None = None) -> tuple[str, str, in
         async with asyncio.timeout(_CMD_TIMEOUT):
             stdout, stderr = await proc.communicate()
     except TimeoutError:
-        proc.kill()
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(proc.pid, signal.SIGKILL)
         await proc.wait()
         logger.error("cmd %s timed out after %ds", args, _CMD_TIMEOUT)
-        return "", f"Command timed out after {_CMD_TIMEOUT}s", 1
+        raise WireGuardTimeout(f"{args[0]} did not finish within {_CMD_TIMEOUT}s") from None
     out = stdout.decode(errors="replace").strip()
     err = stderr.decode(errors="replace").strip()
     rc = proc.returncode or 0
@@ -82,12 +113,45 @@ async def _run(args: list[str], secret: str | None = None) -> tuple[str, str, in
     return out, err, rc
 
 
+def _failure(args: list[str], err: str, rc: int) -> Exception:
+    if _PERMISSION_ERROR in err:
+        return WireGuardUnavailable(f"{err} (the API needs CAP_NET_ADMIN)")
+    return WireGuardError(err or f"{args[0]} exited with status {rc}")
+
+
 async def _check(args: list[str], secret: str | None = None) -> str:
-    """Run a command and return its output, raising WireGuardError if it fails."""
+    """Run a command and return its output, raising if it fails."""
     out, err, rc = await _run(args, secret=secret)
     if rc != 0:
-        raise WireGuardError(err or f"{args[0]} exited with status {rc}")
+        raise _failure(args, err, rc)
     return out
+
+
+async def _show(name: str) -> list[str] | None:
+    """Lines of `wg show <name> dump`, or None if no WireGuard interface by that name is running."""
+    args = ["wg", "show", name, "dump"]
+    out, err, rc = await _run(args)
+    if rc == 0:
+        return out.splitlines()
+    if any(e in err for e in _NOT_RUNNING_ERRORS):
+        return None
+    raise _failure(args, err, rc)
+
+
+async def _wg_set(name: str, args: list[str], secret: str | None = None) -> None:
+    """Run `wg set <name> ...` on a running interface."""
+    cmd = ["wg", "set", name, *args]
+    _, err, rc = await _run(cmd, secret=secret)
+    if rc == 0:
+        return
+    if any(e in err for e in _NOT_RUNNING_ERRORS):
+        raise _not_running(name)
+    raise _failure(cmd, err, rc)
+
+
+def _not_running(name: str) -> Exception:
+    """409 if wg-quick can bring the interface up, 404 if it does not exist at all."""
+    return InterfaceNotRunning(name) if _conf_path(name).exists() else InterfaceNotFound(name)
 
 
 def _conf_path(name: str) -> Path:
@@ -103,6 +167,14 @@ def _require_conf(name: str) -> Path:
     if not conf.exists():
         raise InterfaceNotFound(name)
     return conf
+
+
+async def has_access() -> bool:
+    """Whether wg can query the kernel: the module is loaded and the API has CAP_NET_ADMIN."""
+    try:
+        return await _show(_PROBE_NAME) is None
+    except (WireGuardError, WireGuardUnavailable, WireGuardTimeout):
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -125,8 +197,6 @@ def _interface_from_dump(name: str, fields: list[str]) -> Interface:
 async def list_interfaces() -> list[Interface]:
     interfaces: dict[str, Interface] = {}
 
-    # Unlike `wg show <name>`, this only fails when wg itself cannot run
-    # (e.g. missing CAP_NET_ADMIN): report it instead of listing everything as down.
     stdout = await _check(["wg", "show", "all", "dump"])
     for line in stdout.splitlines():
         parts = line.split("\t")
@@ -149,9 +219,8 @@ async def list_interfaces() -> list[Interface]:
 
 
 async def get_interface(name: str) -> Interface | None:
-    stdout, _, rc = await _run(["wg", "show", name, "dump"])
-    if rc == 0 and stdout:
-        lines = stdout.splitlines()
+    lines = await _show(name)
+    if lines:
         iface = _interface_from_dump(name, lines[0].split("\t"))
         iface.num_peers = len(lines) - 1
         return iface
@@ -162,7 +231,7 @@ async def get_interface(name: str) -> Interface | None:
 
 
 async def update_interface(name: str, update: InterfaceUpdate) -> None:
-    args = ["wg", "set", name]
+    args: list[str] = []
     if update.private_key:
         args += ["private-key", SECRET_ARG]
     if update.listen_port is not None:
@@ -170,12 +239,17 @@ async def update_interface(name: str, update: InterfaceUpdate) -> None:
     if update.fw_mark is not None:
         args += ["fwmark", update.fw_mark]
     logger.info("updating interface %s", name)
-    await _check(args, secret=update.private_key)
+    await _wg_set(name, args, secret=update.private_key)
 
 
 async def _wg_quick(action: str, name: str) -> None:
     _require_conf(name)
     async with _lifecycle_locks.setdefault(name, asyncio.Lock()):
+        running = await _show(name) is not None
+        if action == "up" and running:
+            raise InterfaceAlreadyRunning(name)
+        if action in ("down", "save") and not running:
+            raise InterfaceNotRunning(name)
         logger.info("wg-quick %s %s", action, name)
         await _check(["wg-quick", action, name])
 
@@ -221,23 +295,21 @@ def _parse_peers_dump(lines: list[str]) -> list[Peer]:
     return peers
 
 
-async def list_peers(iface: str) -> list[Peer] | None:
-    stdout, _, rc = await _run(["wg", "show", iface, "dump"])
-    if rc != 0:
-        return None
-    return _parse_peers_dump(stdout.splitlines()[1:])
+async def list_peers(iface: str) -> list[Peer]:
+    lines = await _show(iface)
+    if lines is None:
+        raise _not_running(iface)
+    return _parse_peers_dump(lines[1:])
 
 
 async def get_peer(iface: str, public_key: str) -> Peer | None:
     peers = await list_peers(iface)
-    if peers is None:
-        return None
     return next((p for p in peers if p.public_key == public_key), None)
 
 
 async def set_peer(iface: str, public_key: str, peer: PeerCreate | PeerUpdate) -> None:
     """Create or update a peer. Fields left as None are not changed."""
-    args = ["wg", "set", iface, "peer", public_key]
+    args = ["peer", public_key]
     if peer.allowed_ips:
         args += ["allowed-ips", peer.allowed_ips]
     if peer.endpoint:
@@ -247,9 +319,9 @@ async def set_peer(iface: str, public_key: str, peer: PeerCreate | PeerUpdate) -
     if peer.persistent_keepalive is not None:
         args += ["persistent-keepalive", str(peer.persistent_keepalive)]
     logger.info("setting peer %s on %s", public_key[:8], iface)
-    await _check(args, secret=peer.preshared_key)
+    await _wg_set(iface, args, secret=peer.preshared_key)
 
 
 async def delete_peer(iface: str, public_key: str) -> None:
     logger.info("deleting peer %s from %s", public_key[:8], iface)
-    await _check(["wg", "set", iface, "peer", public_key, "remove"])
+    await _wg_set(iface, ["peer", public_key, "remove"])

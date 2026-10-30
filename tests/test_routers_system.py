@@ -1,5 +1,7 @@
 import shutil
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
+
+import pytest
 
 # ---------------------------------------------------------------------------
 # Info & Health
@@ -46,3 +48,27 @@ class TestSystem:
             data = r.json()
             assert data["status"] == "degraded"
             assert data["checks"]["config_dir"] == "missing"
+
+    @pytest.mark.parametrize(
+        ("probe", "expected"),
+        [
+            (("", "Unable to access interface: No such device", 1), "ok"),
+            (("", "Unable to access interface: Operation not permitted", 1), "error"),
+            (("", "Unable to access interface: Protocol not supported", 1), "error"),
+        ],
+    )
+    async def test_health_checks_access_to_wireguard(self, client, probe, expected):
+        with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=probe) as mock_run:
+            r = await client.get("/api/v1/health")
+        assert r.json()["checks"]["wg_access"] == expected
+        mock_run.assert_awaited_once_with(["wg", "show", "wgapi-probe", "dump"])
+
+    async def test_health_degraded_without_access(self, client):
+        with (
+            patch.object(shutil, "which", return_value="/usr/bin/wg"),
+            patch(
+                "api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "Operation not permitted", 1)
+            ),
+        ):
+            r = await client.get("/api/v1/health")
+        assert r.json()["status"] == "degraded"

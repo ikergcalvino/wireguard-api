@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from tests.conftest import VALID_KEY
+from tests.conftest import NOT_RUNNING, RUNNING_DUMP, VALID_KEY
 
 # ---------------------------------------------------------------------------
 # List Interfaces
@@ -54,7 +54,7 @@ class TestGetInterface:
     async def test_down(self, client, tmp_path):
         (tmp_path / "wg0.conf").write_text("")
         with (
-            patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "err", 1)),
+            patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", NOT_RUNNING, 1)),
             patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path),
         ):
             r = await client.get("/api/v1/interfaces/wg0")
@@ -63,7 +63,7 @@ class TestGetInterface:
 
     async def test_not_found(self, client, tmp_path):
         with (
-            patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "err", 1)),
+            patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", NOT_RUNNING, 1)),
             patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path),
         ):
             r = await client.get("/api/v1/interfaces/wg0")
@@ -92,10 +92,22 @@ class TestUpdateInterface:
             assert r.json()["listen_port"] == 51821
 
     async def test_wg_failure(self, client):
-        with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "No such device", 1)):
+        with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "Invalid fwmark", 1)):
             r = await client.patch("/api/v1/interfaces/wg0", json={"listen_port": 51821})
             assert r.status_code == 400
-            assert r.json()["detail"] == "No such device"
+            assert r.json()["detail"] == "Invalid fwmark"
+
+    async def test_down_interface_is_a_conflict(self, client, tmp_path):
+        (tmp_path / "wg0.conf").write_text("")
+        with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", NOT_RUNNING, 1)):
+            r = await client.patch("/api/v1/interfaces/wg0", json={"listen_port": 51821})
+            assert r.status_code == 409
+            assert r.json()["detail"] == "Interface 'wg0' is not running"
+
+    async def test_unknown_interface_is_not_found(self, client):
+        with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", NOT_RUNNING, 1)):
+            r = await client.patch("/api/v1/interfaces/wg0", json={"listen_port": 51821})
+            assert r.status_code == 404
 
     @pytest.mark.parametrize(
         "body",
@@ -145,16 +157,37 @@ class TestNoFileManagement:
 
 
 class TestInterfaceActions:
-    @pytest.mark.parametrize(("action", "status"), [("up", "up"), ("down", "down"), ("save", "saved")])
-    async def test_success(self, client, tmp_path, action, status):
+    @pytest.mark.parametrize(
+        ("action", "status", "show"),
+        [
+            ("up", "up", ("", NOT_RUNNING, 1)),
+            ("down", "down", (RUNNING_DUMP, "", 0)),
+            ("save", "saved", (RUNNING_DUMP, "", 0)),
+        ],
+    )
+    async def test_success(self, client, tmp_path, action, status, show):
         (tmp_path / "wg0.conf").write_text("")
-        with (
-            patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "", 0)),
-            patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path),
-        ):
+        with patch("api.services.wireguard._run", new_callable=AsyncMock) as mock_run:
+            mock_run.side_effect = [show, ("", "", 0)]
             r = await client.post(f"/api/v1/interfaces/wg0/{action}")
             assert r.status_code == 200
             assert r.json() == {"status": status, "interface": "wg0"}
+
+    @pytest.mark.parametrize(
+        ("action", "show", "detail"),
+        [
+            ("up", (RUNNING_DUMP, "", 0), "Interface 'wg0' is already running"),
+            ("down", ("", NOT_RUNNING, 1), "Interface 'wg0' is not running"),
+            ("save", ("", NOT_RUNNING, 1), "Interface 'wg0' is not running"),
+        ],
+    )
+    async def test_wrong_state_is_a_conflict(self, client, tmp_path, action, show, detail):
+        (tmp_path / "wg0.conf").write_text("")
+        with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=show) as mock_run:
+            r = await client.post(f"/api/v1/interfaces/wg0/{action}")
+            assert r.status_code == 409
+            assert r.json()["detail"] == detail
+            assert mock_run.await_count == 1  # wg-quick never ran
 
     @pytest.mark.parametrize("action", ["up", "down", "save"])
     async def test_failure(self, client, tmp_path, action):

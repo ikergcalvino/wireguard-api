@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from tests.conftest import VALID_KEY
+from tests.conftest import NOT_RUNNING, VALID_KEY
 
 # ---------------------------------------------------------------------------
 # List Peers
@@ -19,7 +19,7 @@ class TestListPeers:
 
     async def test_interface_not_found(self, client, tmp_path):
         with (
-            patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "err", 1)),
+            patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", NOT_RUNNING, 1)),
             patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path),
         ):
             r = await client.get("/api/v1/interfaces/wg0/peers")
@@ -89,7 +89,7 @@ class TestGetPeer:
 
     async def test_interface_not_found(self, client, tmp_path):
         with (
-            patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "err", 1)),
+            patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", NOT_RUNNING, 1)),
             patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path),
         ):
             r = await client.get(f"/api/v1/interfaces/wg0/peers/{VALID_KEY}")
@@ -135,9 +135,15 @@ class TestDeletePeer:
             assert r.status_code == 204
 
     async def test_wg_failure(self, client):
-        with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "No such device", 1)):
+        with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "Line unrecognized", 1)):
             r = await client.delete(f"/api/v1/interfaces/wg0/peers/{VALID_KEY}")
             assert r.status_code == 400
+
+    async def test_down_interface_is_a_conflict(self, client, tmp_path):
+        (tmp_path / "wg0.conf").write_text("")
+        with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", NOT_RUNNING, 1)):
+            r = await client.delete(f"/api/v1/interfaces/wg0/peers/{VALID_KEY}")
+            assert r.status_code == 409
 
 
 # ---------------------------------------------------------------------------

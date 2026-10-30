@@ -4,13 +4,15 @@ import pytest
 
 from api.models.peers import PeerCreate, PeerUpdate
 from api.services.wireguard import (
+    InterfaceNotFound,
+    InterfaceNotRunning,
     WireGuardError,
     delete_peer,
     get_peer,
     list_peers,
     set_peer,
 )
-from tests.conftest import VALID_KEY
+from tests.conftest import NOT_RUNNING, VALID_KEY
 
 # ---------------------------------------------------------------------------
 # list_peers
@@ -25,13 +27,20 @@ class TestListPeers:
             assert peers is not None
             assert len(peers) == 1
 
-    async def test_returns_none_when_not_running(self, tmp_path):
+    async def test_down_interface_with_conf(self, tmp_path):
         (tmp_path / "wg0.conf").write_text(f"[Interface]\n\n[Peer]\nPublicKey = {VALID_KEY}\n")
         with (
-            patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "err", 1)),
-            patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path),
+            patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", NOT_RUNNING, 1)),
+            pytest.raises(InterfaceNotRunning),
         ):
-            assert await list_peers("wg0") is None
+            await list_peers("wg0")
+
+    async def test_unknown_interface(self):
+        with (
+            patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", NOT_RUNNING, 1)),
+            pytest.raises(InterfaceNotFound),
+        ):
+            await list_peers("wg0")
 
 
 # ---------------------------------------------------------------------------
@@ -52,9 +61,12 @@ class TestGetPeer:
         with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=(dump, "", 0)):
             assert await get_peer("wg0", VALID_KEY) is None
 
-    async def test_returns_none_on_error(self):
-        with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "err", 1)):
-            assert await get_peer("wg0", VALID_KEY) is None
+    async def test_unknown_interface_raises(self):
+        with (
+            patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", NOT_RUNNING, 1)),
+            pytest.raises(InterfaceNotFound),
+        ):
+            await get_peer("wg0", VALID_KEY)
 
 
 # ---------------------------------------------------------------------------

@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 import pytest
 from httpx2 import ASGITransport, AsyncClient
 
@@ -7,6 +9,11 @@ from tests import TEST_API_KEY
 
 VALID_KEY = "YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMjM0NTY="
 
+# What wg prints for a name with no running WireGuard interface.
+NOT_RUNNING = "Unable to access interface: No such device"
+# First line of `wg show <name> dump` for a running interface.
+RUNNING_DUMP = f"PRIVATE\t{VALID_KEY}\t51820\toff"
+
 
 @pytest.fixture
 async def client():
@@ -14,6 +21,13 @@ async def client():
         transport=ASGITransport(app=app), base_url="http://test", headers={"X-API-Key": TEST_API_KEY}
     ) as ac:
         yield ac
+
+
+@pytest.fixture(autouse=True)
+def isolated_config_dir(tmp_path):
+    # Never look at the real /etc/wireguard; tests that need .conf files create them in tmp_path.
+    with patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path):
+        yield tmp_path
 
 
 @pytest.fixture(autouse=True)

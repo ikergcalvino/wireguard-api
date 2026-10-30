@@ -4,6 +4,7 @@ import pytest
 from httpx2 import ASGITransport, AsyncClient
 
 from api.main import app
+from api.services.wireguard import WireGuardTimeout
 from tests import TEST_API_KEY
 from tests.conftest import VALID_KEY
 
@@ -54,6 +55,21 @@ class TestExceptionHandlers:
             r = await client.delete(f"/api/v1/interfaces/wg0/peers/{VALID_KEY}")
             assert r.status_code == 400
             assert r.json()["detail"] == "Line unrecognized"
+
+    async def test_missing_capability_returns_503(self, client):
+        with patch(
+            "api.services.wireguard._run",
+            new_callable=AsyncMock,
+            return_value=("", "Unable to access interface: Operation not permitted", 1),
+        ):
+            r = await client.get("/api/v1/interfaces")
+            assert r.status_code == 503
+            assert "CAP_NET_ADMIN" in r.json()["detail"]
+
+    async def test_timeout_returns_504(self, client):
+        with patch("api.services.wireguard._run", new_callable=AsyncMock, side_effect=WireGuardTimeout("slow")):
+            r = await client.get("/api/v1/interfaces")
+            assert r.status_code == 504
 
     async def test_wg_failure_without_output_has_a_message(self, client):
         with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "", 3)):

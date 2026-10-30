@@ -100,9 +100,19 @@ they are, even when they contain `/`.
 | `GET`  | `/api/v1`        | API info                  |
 | `GET`  | `/api/v1/health` | Health check (no API key) |
 
-When `wg` or `wg-quick` fails, the API answers `400` with the command's error message as `detail`. Invalid input
-is rejected with `422`, actions on an interface without a `.conf` file with `404`, and the API answers `503` if it
-cannot execute `wg` or `wg-quick` at all.
+Errors:
+
+| Status | When                                                                                          |
+|--------|-----------------------------------------------------------------------------------------------|
+| `400`  | `wg` or `wg-quick` failed; `detail` is its error message                                      |
+| `404`  | The interface is not running and has no `.conf` file, or the peer does not exist              |
+| `409`  | The interface is in the wrong state: down for runtime and peer changes or `save`, already up for `up`, already down for `down` |
+| `422`  | Invalid input                                                                                 |
+| `503`  | `wg` or `wg-quick` cannot be used: not installed, or the API lacks `CAP_NET_ADMIN`            |
+| `504`  | A command did not finish within 30 seconds                                                    |
+
+The health check reports `degraded` when the config directory or the tools are missing, or when `wg` cannot query
+the kernel (`wg_access`).
 
 ## Examples
 
