@@ -176,7 +176,6 @@ wireguard-api/
 │   │   ├── peers.py       # Peer endpoints
 │   │   └── system.py      # API info and health check
 │   └── services/
-│       ├── __init__.py    # Public service exports
 │       └── wireguard.py   # wg / wg-quick subprocess wrappers
 ├── tests/                 # pytest test suite
 ├── .github/               # CI and publish workflows, issue and PR templates
