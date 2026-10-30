@@ -19,7 +19,8 @@ files itself: the `.conf` files in `/etc/wireguard` are yours to manage.
 - **Input validation** — interface names, WireGuard keys, CIDRs and fwmarks are validated before reaching `wg`
 - **No shell** — every command runs with an argument list; secrets are passed through stdin
 - **API key auth** — every endpoint except the health check requires the `X-API-Key` header
-- **Docker image** — `python:3.15-alpine` with `wireguard-tools`, for `linux/amd64` and `linux/arm64`
+- **Docker image** — `python:3.15-alpine` with `wireguard-tools`, `iptables` and `nftables` (for `PostUp` rules
+  and full-tunnel configs), for `linux/amd64` and `linux/arm64`
 
 ## Prerequisites
 
@@ -27,6 +28,8 @@ The **host** must have:
 
 - The WireGuard kernel module (`sudo modprobe wireguard`)
 - IP forwarding enabled if the host routes traffic for peers (`sysctl net.ipv4.ip_forward=1`)
+- For full-tunnel configs (`AllowedIPs = 0.0.0.0/0`): `sysctl net.ipv4.conf.all.src_valid_mark=1`. `wg-quick`
+  sets it itself, but it cannot from inside the container, so set it on the host (e.g. in `/etc/sysctl.d/`)
 - One `.conf` file per interface in `/etc/wireguard` (see `wg-quick(8)`)
 
 ## Installation

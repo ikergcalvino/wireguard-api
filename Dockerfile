@@ -5,7 +5,9 @@ FROM python:3.15-alpine
 
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 
-RUN apk add --no-cache wireguard-tools iproute2
+# iptables and nftables: wg-quick needs them for full-tunnel configs (AllowedIPs = 0.0.0.0/0),
+# and server configs commonly use iptables in PostUp/PostDown, e.g. for NAT.
+RUN apk add --no-cache wireguard-tools iproute2 iptables nftables
 
 WORKDIR /app
 
