@@ -1,8 +1,15 @@
-from ipaddress import ip_network
+import re
+from ipaddress import IPv4Address, IPv6Address, ip_network
 
 from pydantic import BaseModel, Field, field_validator
 
 from api.models import WG_KEY_PATTERN
+
+# host:port, where host is an IPv4 address, a hostname or a bracketed IPv6 address.
+ENDPOINT_PATTERN = re.compile(r"^(?:\[(?P<ipv6>[^\[\]]+)\]|(?P<host>[^:\[\]]+)):(?P<port>[0-9]{1,5})$")
+HOSTNAME_PATTERN = re.compile(
+    r"^(?=.{1,253}$)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$"
+)
 
 
 class Peer(BaseModel):
@@ -79,3 +86,27 @@ class Peer(BaseModel):
                 except ValueError:
                     raise ValueError(f"Invalid CIDR notation: {cidr.strip()}") from None
         return v
+
+    @field_validator("endpoint")
+    @classmethod
+    def validate_endpoint(cls, v: str | None) -> str | None:
+        if v is not None and not _is_valid_endpoint(v):
+            raise ValueError("Invalid endpoint: expected IPv4:port, [IPv6]:port or hostname:port")
+        return v
+
+
+def _is_valid_endpoint(endpoint: str) -> bool:
+    match = ENDPOINT_PATTERN.match(endpoint)
+    if not match or not 1 <= int(match["port"]) <= 65535:
+        return False
+    if match["ipv6"] is not None:
+        try:
+            IPv6Address(match["ipv6"])
+        except ValueError:
+            return False
+        return True
+    try:
+        IPv4Address(match["host"])
+    except ValueError:
+        return bool(HOSTNAME_PATTERN.match(match["host"]))
+    return True

@@ -155,3 +155,41 @@ class TestPeer:
             persistent_keepalive=25,
         )
         assert peer.transfer_rx == 1024
+
+
+class TestPeerEndpoint:
+    @pytest.mark.parametrize(
+        "endpoint",
+        [
+            "1.2.3.4:51820",
+            "[fd00::1]:51820",
+            "[fe80::1%eth0]:51820",
+            "vpn.example.com:51820",
+            "localhost:1",
+            "host-1:65535",
+        ],
+    )
+    def test_valid(self, endpoint):
+        assert Peer(public_key=VALID_KEY, endpoint=endpoint).endpoint == endpoint
+
+    @pytest.mark.parametrize(
+        "endpoint",
+        [
+            "",
+            "1.2.3.4",
+            "1.2.3.4:",
+            "1.2.3.4:0",
+            "1.2.3.4:65536",
+            "1.2.3.4:51820x",
+            "fd00::1:51820",
+            "[not-an-ip]:51820",
+            "[1.2.3.4]:51820",
+            "-bad.example.com:51820",
+            "bad_host:51820",
+            "host:51820\nPostUp = id",
+            "1.2.3.4:51820 extra",
+        ],
+    )
+    def test_invalid(self, endpoint):
+        with pytest.raises(ValidationError, match="Invalid endpoint"):
+            Peer(public_key=VALID_KEY, endpoint=endpoint)

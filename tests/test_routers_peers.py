@@ -209,3 +209,14 @@ class TestPresharedKeyNotExposed:
         schemas = (await client.get("/openapi.json")).json()["components"]["schemas"]
         assert schemas["Peer-Input"]["properties"]["preshared_key"]["writeOnly"] is True
         assert "preshared_key" not in schemas["Peer-Output"]["properties"]
+
+
+class TestEndpointValidation:
+    async def test_invalid_endpoint_never_reaches_wg(self, client):
+        with patch("api.services.wireguard._run", new_callable=AsyncMock) as mock_run:
+            r = await client.post(
+                "/api/v1/interfaces/wg0/peers",
+                json={"public_key": VALID_KEY, "allowed_ips": "10.0.0.2/32", "endpoint": "--help:1"},
+            )
+            assert r.status_code == 422
+            mock_run.assert_not_awaited()
