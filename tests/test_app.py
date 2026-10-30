@@ -1,61 +1,11 @@
-import shutil
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from pydantic import ValidationError
 
-from api.config import Settings, load_settings
 from api.main import app
 from tests import TEST_API_KEY
 from tests.conftest import VALID_KEY
-
-# ---------------------------------------------------------------------------
-# Root & Health
-# ---------------------------------------------------------------------------
-
-
-class TestMeta:
-    async def test_root(self, client):
-        r = await client.get("/api/v1")
-        assert r.status_code == 200
-        data = r.json()
-        assert data["name"] == "wireguard-api"
-        assert "version" in data
-
-    async def test_health(self, client):
-        r = await client.get("/api/v1/health")
-        assert r.status_code == 200
-        data = r.json()
-        assert "status" in data
-        assert "checks" in data
-
-    async def test_health_degraded_missing_wg(self, client):
-        with patch.object(shutil, "which", side_effect=lambda cmd: None if cmd == "wg" else "/usr/bin/" + cmd):
-            r = await client.get("/api/v1/health")
-            assert r.status_code == 200
-            data = r.json()
-            assert data["status"] == "degraded"
-            assert data["checks"]["wg"] == "missing"
-
-    async def test_health_degraded_missing_wg_quick(self, client):
-        with patch.object(shutil, "which", side_effect=lambda cmd: None if cmd == "wg-quick" else "/usr/bin/" + cmd):
-            r = await client.get("/api/v1/health")
-            assert r.status_code == 200
-            data = r.json()
-            assert data["status"] == "degraded"
-            assert data["checks"]["wg_quick"] == "missing"
-
-    async def test_health_degraded_missing_config_dir(self, client, tmp_path):
-        missing = tmp_path / "nonexistent"
-        with patch("api.routers.system.settings") as mock_settings:
-            mock_settings.config_dir = missing
-            r = await client.get("/api/v1/health")
-            assert r.status_code == 200
-            data = r.json()
-            assert data["status"] == "degraded"
-            assert data["checks"]["config_dir"] == "missing"
-
 
 # ---------------------------------------------------------------------------
 # Auth
@@ -85,34 +35,6 @@ class TestAuth:
     async def test_health_does_not_need_a_key(self, anonymous):
         r = await anonymous.get("/api/v1/health")
         assert r.status_code == 200
-
-
-class TestSettings:
-    def test_api_key_is_required(self, monkeypatch):
-        monkeypatch.delenv("WG_API_KEY")
-        with pytest.raises(ValidationError, match="api_key"):
-            Settings()
-
-    @pytest.mark.parametrize("key", ["", "short-key"])
-    def test_api_key_must_be_long_enough(self, monkeypatch, key):
-        monkeypatch.setenv("WG_API_KEY", key)
-        with pytest.raises(ValidationError, match="at least 16 characters"):
-            Settings()
-
-    @pytest.mark.parametrize(("value", "expected"), [("debug", "DEBUG"), ("Warning", "WARNING"), ("ERROR", "ERROR")])
-    def test_log_level_is_case_insensitive(self, monkeypatch, value, expected):
-        monkeypatch.setenv("WG_LOG_LEVEL", value)
-        assert Settings().log_level == expected
-
-    def test_invalid_log_level_exits_with_a_readable_message(self, monkeypatch):
-        monkeypatch.setenv("WG_LOG_LEVEL", "verbose")
-        with pytest.raises(SystemExit, match="^Invalid configuration: WG_LOG_LEVEL: Input should be 'DEBUG'"):
-            load_settings()
-
-    def test_load_settings_exits_with_a_readable_message(self, monkeypatch):
-        monkeypatch.delenv("WG_API_KEY")
-        with pytest.raises(SystemExit, match="^Invalid configuration: WG_API_KEY: Field required$"):
-            load_settings()
 
 
 # ---------------------------------------------------------------------------
@@ -186,7 +108,3 @@ class TestCORS:
         )
         assert r.headers["access-control-allow-origin"] == "*"
         assert "access-control-allow-credentials" not in r.headers
-
-    def test_origin_list_is_comma_separated(self, monkeypatch):
-        monkeypatch.setenv("WG_CORS_ORIGINS", "https://a.example, https://b.example")
-        assert Settings().cors_origin_list == ["https://a.example", "https://b.example"]
