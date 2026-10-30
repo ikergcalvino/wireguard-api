@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, patch
 from httpx import ASGITransport, AsyncClient
 
 from api.main import app
+from tests.conftest import VALID_KEY
 
 # ---------------------------------------------------------------------------
 # Root & Health
@@ -91,11 +92,30 @@ class TestAuth:
 
 
 class TestExceptionHandlers:
-    async def test_permission_error_returns_403(self, client):
-        with patch("api.services.wireguard._run", new_callable=AsyncMock, side_effect=PermissionError("access denied")):
+    async def test_missing_wg_binary_returns_503(self, client):
+        with patch("asyncio.create_subprocess_exec", side_effect=FileNotFoundError(2, "No such file or directory")):
             r = await client.get("/api/v1/interfaces/wg0")
-            assert r.status_code == 403
-            assert "ermission" in r.json()["detail"]
+            assert r.status_code == 503
+            assert r.json()["detail"] == "Cannot execute wg: No such file or directory"
+
+    async def test_wg_failure_returns_400_with_its_message(self, client):
+        with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "Line unrecognized", 1)):
+            r = await client.delete(f"/api/v1/interfaces/wg0/peers/{VALID_KEY}")
+            assert r.status_code == 400
+            assert r.json()["detail"] == "Line unrecognized"
+
+    async def test_wg_failure_without_output_has_a_message(self, client):
+        with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "", 3)):
+            r = await client.delete(f"/api/v1/interfaces/wg0/peers/{VALID_KEY}")
+            assert r.json()["detail"] == "wg exited with status 3"
+
+    async def test_internal_value_error_is_not_a_client_error(self):
+        transport = ASGITransport(app=app, raise_app_exceptions=False)
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            with patch("api.services.wireguard._run", new_callable=AsyncMock, side_effect=ValueError("bug")):
+                r = await c.get("/api/v1/interfaces/wg0")
+                assert r.status_code == 500
+                assert r.json()["detail"] == "Internal server error"
 
     async def test_unhandled_exception_returns_500(self):
         transport = ASGITransport(app=app, raise_app_exceptions=False)

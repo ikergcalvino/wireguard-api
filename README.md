@@ -112,7 +112,8 @@ they are, even when they contain `/`.
 | `GET`  | `/api/v1/health` | Health check (no API key) |
 
 When `wg` or `wg-quick` fails, the API answers `400` with the command's error message as `detail`. Invalid input
-is rejected with `422`.
+is rejected with `422`, actions on an interface without a `.conf` file with `404`, and the API answers `503` if it
+cannot execute `wg` or `wg-quick` at all.
 
 ## Examples
 

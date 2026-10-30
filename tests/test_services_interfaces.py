@@ -4,6 +4,8 @@ import pytest
 
 from api.models.interfaces import InterfaceUpdate
 from api.services.wireguard import (
+    InterfaceNotFound,
+    WireGuardError,
     get_interface,
     interface_down,
     interface_save,
@@ -90,10 +92,12 @@ class TestListInterfaces:
         mock_run.return_value = ("", "", 0)
         assert await list_interfaces() == []
 
-    async def test_empty_on_error(self, mock_wg):
-        mock_run, _ = mock_wg
-        mock_run.return_value = ("", "error", 1)
-        assert await list_interfaces() == []
+    async def test_raises_when_wg_fails(self, mock_wg):
+        mock_run, tmp_path = mock_wg
+        (tmp_path / "wg0.conf").write_text("")
+        mock_run.return_value = ("", "Operation not permitted", 1)
+        with pytest.raises(WireGuardError, match="Operation not permitted"):
+            await list_interfaces()
 
     async def test_skips_invalid_conf_names(self, mock_wg):
         mock_run, tmp_path = mock_wg
@@ -152,7 +156,7 @@ class TestUpdateInterface:
     async def test_sets_all_fields(self):
         update = InterfaceUpdate(private_key=VALID_KEY, listen_port=51821, fw_mark="0x10")
         with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "", 0)) as mock_run:
-            assert await update_interface("wg0", update) == ("", 0)
+            assert await update_interface("wg0", update) is None
         assert mock_run.await_args_list == [
             call(
                 ["wg", "set", "wg0", "private-key", "/dev/stdin", "listen-port", "51821", "fwmark", "0x10"],
@@ -174,8 +178,11 @@ class TestUpdateInterface:
         assert list(tmp_path.iterdir()) == []
 
     async def test_returns_wg_error(self):
-        with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "No such device", 1)):
-            assert await update_interface("wg0", InterfaceUpdate(listen_port=51821)) == ("No such device", 1)
+        with (
+            patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "No such device", 1)),
+            pytest.raises(WireGuardError, match="No such device"),
+        ):
+            await update_interface("wg0", InterfaceUpdate(listen_port=51821))
 
 
 # ---------------------------------------------------------------------------
@@ -194,15 +201,15 @@ class TestLifecycle:
             patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "", 0)) as mock_run,
             patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path),
         ):
-            assert await func("wg0") == ("", 0)
-        mock_run.assert_awaited_once_with(["wg-quick", action, "wg0"])
+            assert await func("wg0") is None
+        mock_run.assert_awaited_once_with(["wg-quick", action, "wg0"], stdin_data=None)
 
     @pytest.mark.parametrize("func", [interface_up, interface_down, interface_save])
     async def test_requires_conf(self, tmp_path, func):
         with (
             patch("api.services.wireguard._run", new_callable=AsyncMock) as mock_run,
             patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path),
-            pytest.raises(FileNotFoundError),
+            pytest.raises(InterfaceNotFound),
         ):
             await func("wg0")
         mock_run.assert_not_awaited()

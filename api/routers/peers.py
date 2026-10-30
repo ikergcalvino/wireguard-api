@@ -24,7 +24,7 @@ async def create_peer(iface: IfaceName, body: Peer):
         raise HTTPException(status_code=422, detail="public_key is required")
     if not body.allowed_ips:
         raise HTTPException(status_code=422, detail="allowed_ips is required")
-    stderr, rc = await wg.set_peer(
+    await wg.set_peer(
         iface=iface,
         public_key=body.public_key,
         allowed_ips=body.allowed_ips,
@@ -32,8 +32,6 @@ async def create_peer(iface: IfaceName, body: Peer):
         preshared_key=body.preshared_key,
         persistent_keepalive=body.persistent_keepalive,
     )
-    if rc != 0:
-        raise HTTPException(status_code=400, detail=stderr)
     return await _get_peer_after_change(iface, body.public_key)
 
 
@@ -49,7 +47,7 @@ async def get_peer(iface: IfaceName, public_key: WgKey):
 
 @router.put("/{public_key:path}", response_model=Peer)
 async def update_peer(iface: IfaceName, public_key: WgKey, body: Peer):
-    stderr, rc = await wg.set_peer(
+    await wg.set_peer(
         iface=iface,
         public_key=public_key,
         allowed_ips=body.allowed_ips,
@@ -57,16 +55,12 @@ async def update_peer(iface: IfaceName, public_key: WgKey, body: Peer):
         preshared_key=body.preshared_key,
         persistent_keepalive=body.persistent_keepalive,
     )
-    if rc != 0:
-        raise HTTPException(status_code=400, detail=stderr)
     return await _get_peer_after_change(iface, public_key)
 
 
 @router.delete("/{public_key:path}", status_code=204)
 async def delete_peer(iface: IfaceName, public_key: WgKey):
-    stderr, rc = await wg.delete_peer(iface, public_key)
-    if rc != 0:
-        raise HTTPException(status_code=400, detail=stderr)
+    await wg.delete_peer(iface, public_key)
 
 
 async def _get_peer_after_change(iface: str, public_key: str) -> Peer:

@@ -15,14 +15,33 @@ WG_CONFIG_DIR = settings.config_dir
 _CMD_TIMEOUT = 30
 
 
+class InterfaceNotFound(Exception):
+    """The interface has no config file, so wg-quick cannot manage it."""
+
+    def __init__(self, name: str) -> None:
+        super().__init__(f"Interface '{name}' not found")
+
+
+class WireGuardError(Exception):
+    """A wg or wg-quick command failed. The message is its error output."""
+
+
+class WireGuardUnavailable(Exception):
+    """A wg or wg-quick command could not be executed at all."""
+
+
 async def _run(args: list[str], stdin_data: bytes | None = None) -> tuple[str, str, int]:
     logger.debug("exec: %s", args)
-    proc = await asyncio.create_subprocess_exec(
-        *args,
-        stdin=asyncio.subprocess.PIPE if stdin_data else None,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *args,
+            stdin=asyncio.subprocess.PIPE if stdin_data else None,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except OSError as exc:
+        logger.error("cannot execute %s: %s", args[0], exc)
+        raise WireGuardUnavailable(f"Cannot execute {args[0]}: {exc.strerror}") from exc
     try:
         stdout, stderr = await asyncio.wait_for(
             proc.communicate(input=stdin_data),
@@ -33,10 +52,20 @@ async def _run(args: list[str], stdin_data: bytes | None = None) -> tuple[str, s
         await proc.wait()
         logger.error("cmd %s timed out after %ds", args, _CMD_TIMEOUT)
         return "", f"Command timed out after {_CMD_TIMEOUT}s", 1
-    out, err, rc = stdout.decode().strip(), stderr.decode().strip(), proc.returncode or 0
+    out = stdout.decode(errors="replace").strip()
+    err = stderr.decode(errors="replace").strip()
+    rc = proc.returncode or 0
     if rc != 0:
         logger.warning("cmd %s failed (rc=%d): %s", args, rc, err)
     return out, err, rc
+
+
+async def _check(args: list[str], stdin_data: bytes | None = None) -> str:
+    """Run a command and return its output, raising WireGuardError if it fails."""
+    out, err, rc = await _run(args, stdin_data=stdin_data)
+    if rc != 0:
+        raise WireGuardError(err or f"{args[0]} exited with status {rc}")
+    return out
 
 
 def _conf_path(name: str) -> Path:
@@ -49,7 +78,7 @@ def _conf_path(name: str) -> Path:
 def _require_conf(name: str) -> Path:
     conf = _conf_path(name)
     if not conf.exists():
-        raise FileNotFoundError(f"Interface '{name}' not found")
+        raise InterfaceNotFound(name)
     return conf
 
 
@@ -73,14 +102,15 @@ def _interface_from_dump(name: str, fields: list[str]) -> Interface:
 async def list_interfaces() -> list[Interface]:
     interfaces: dict[str, Interface] = {}
 
-    stdout, _, rc = await _run(["wg", "show", "all", "dump"])
-    if rc == 0:
-        for line in stdout.splitlines():
-            parts = line.split("\t")
-            if len(parts) == 5:
-                interfaces[parts[0]] = _interface_from_dump(parts[0], parts[1:])
-            elif len(parts) == 9 and parts[0] in interfaces:
-                interfaces[parts[0]].num_peers += 1
+    # Unlike `wg show <name>`, this only fails when wg itself cannot run
+    # (e.g. missing CAP_NET_ADMIN): report it instead of listing everything as down.
+    stdout = await _check(["wg", "show", "all", "dump"])
+    for line in stdout.splitlines():
+        parts = line.split("\t")
+        if len(parts) == 5:
+            interfaces[parts[0]] = _interface_from_dump(parts[0], parts[1:])
+        elif len(parts) == 9 and parts[0] in interfaces:
+            interfaces[parts[0]].num_peers += 1
 
     # Config files are only used to know which interfaces can be brought up.
     for conf_file in sorted(WG_CONFIG_DIR.glob("*.conf")):
@@ -108,7 +138,7 @@ async def get_interface(name: str) -> Interface | None:
     return None
 
 
-async def update_interface(name: str, update: InterfaceUpdate) -> tuple[str, int]:
+async def update_interface(name: str, update: InterfaceUpdate) -> None:
     args = ["wg", "set", name]
     if update.private_key:
         args += ["private-key", "/dev/stdin"]
@@ -118,29 +148,25 @@ async def update_interface(name: str, update: InterfaceUpdate) -> tuple[str, int
         args += ["fwmark", update.fw_mark]
     stdin_data = update.private_key.encode() if update.private_key else None
     logger.info("updating interface %s", name)
-    _, stderr, rc = await _run(args, stdin_data=stdin_data)
-    return stderr, rc
+    await _check(args, stdin_data=stdin_data)
 
 
-async def interface_up(name: str) -> tuple[str, int]:
+async def interface_up(name: str) -> None:
     _require_conf(name)
     logger.info("bringing up interface %s", name)
-    _, stderr, rc = await _run(["wg-quick", "up", name])
-    return stderr, rc
+    await _check(["wg-quick", "up", name])
 
 
-async def interface_down(name: str) -> tuple[str, int]:
+async def interface_down(name: str) -> None:
     _require_conf(name)
     logger.info("bringing down interface %s", name)
-    _, stderr, rc = await _run(["wg-quick", "down", name])
-    return stderr, rc
+    await _check(["wg-quick", "down", name])
 
 
-async def interface_save(name: str) -> tuple[str, int]:
+async def interface_save(name: str) -> None:
     _require_conf(name)
     logger.info("saving interface %s", name)
-    _, stderr, rc = await _run(["wg-quick", "save", name])
-    return stderr, rc
+    await _check(["wg-quick", "save", name])
 
 
 # ---------------------------------------------------------------------------
@@ -193,9 +219,7 @@ async def set_peer(
     endpoint: str | None = None,
     preshared_key: str | None = None,
     persistent_keepalive: int | None = None,
-) -> tuple[str, int]:
-    if not public_key:
-        raise ValueError("public_key is required")
+) -> None:
     args = ["wg", "set", iface, "peer", public_key]
     if allowed_ips:
         args += ["allowed-ips", allowed_ips]
@@ -207,11 +231,9 @@ async def set_peer(
         args += ["persistent-keepalive", str(persistent_keepalive)]
     stdin_data = preshared_key.encode() if preshared_key else None
     logger.info("setting peer %s on %s", public_key[:8], iface)
-    _, stderr, rc = await _run(args, stdin_data=stdin_data)
-    return stderr, rc
+    await _check(args, stdin_data=stdin_data)
 
 
-async def delete_peer(iface: str, public_key: str) -> tuple[str, int]:
+async def delete_peer(iface: str, public_key: str) -> None:
     logger.info("deleting peer %s from %s", public_key[:8], iface)
-    _, stderr, rc = await _run(["wg", "set", iface, "peer", public_key, "remove"])
-    return stderr, rc
+    await _check(["wg", "set", iface, "peer", public_key, "remove"])

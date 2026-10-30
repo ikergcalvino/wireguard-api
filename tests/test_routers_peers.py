@@ -168,7 +168,7 @@ class TestSlashInPublicKey:
         with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "", 0)) as mock_run:
             r = await client.delete(f"/api/v1/interfaces/wg0/peers/{SLASH_KEY}")
             assert r.status_code == 204
-            mock_run.assert_awaited_once_with(["wg", "set", "wg0", "peer", SLASH_KEY, "remove"])
+            mock_run.assert_awaited_once_with(["wg", "set", "wg0", "peer", SLASH_KEY, "remove"], stdin_data=None)
 
     async def test_extra_segments_rejected(self, client):
         r = await client.get(f"/api/v1/interfaces/wg0/peers/{SLASH_KEY}/extra")

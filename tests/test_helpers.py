@@ -106,3 +106,8 @@ class TestInterfaceFromDump:
         assert iface.public_key is None
         assert iface.listen_port is None
         assert iface.fw_mark is None
+
+    async def test_undecodable_output_is_replaced(self):
+        out, err, rc = await _run(["printf", "\\377ok"])
+        assert rc == 0
+        assert out == "�ok"

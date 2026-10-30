@@ -22,9 +22,7 @@ async def get_interface(name: IfaceName):
 
 @router.patch("/{name}", response_model=Interface)
 async def update_interface(name: IfaceName, body: InterfaceUpdate):
-    stderr, rc = await wg.update_interface(name, body)
-    if rc != 0:
-        raise HTTPException(status_code=400, detail=stderr)
+    await wg.update_interface(name, body)
     result = await wg.get_interface(name)
     if not result:
         raise HTTPException(status_code=500, detail="Interface updated but could not be retrieved")
@@ -33,23 +31,17 @@ async def update_interface(name: IfaceName, body: InterfaceUpdate):
 
 @router.post("/{name}/up")
 async def interface_up(name: IfaceName):
-    stderr, rc = await wg.interface_up(name)
-    if rc != 0:
-        raise HTTPException(status_code=400, detail=stderr)
+    await wg.interface_up(name)
     return {"status": "up", "interface": name}
 
 
 @router.post("/{name}/down")
 async def interface_down(name: IfaceName):
-    stderr, rc = await wg.interface_down(name)
-    if rc != 0:
-        raise HTTPException(status_code=400, detail=stderr)
+    await wg.interface_down(name)
     return {"status": "down", "interface": name}
 
 
 @router.post("/{name}/save")
 async def interface_save(name: IfaceName):
-    stderr, rc = await wg.interface_save(name)
-    if rc != 0:
-        raise HTTPException(status_code=400, detail=stderr)
+    await wg.interface_save(name)
     return {"status": "saved", "interface": name}

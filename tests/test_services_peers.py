@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from api.services.wireguard import (
+    WireGuardError,
     delete_peer,
     get_peer,
     list_peers,
@@ -63,7 +64,7 @@ class TestGetPeer:
 class TestSetPeer:
     async def test_success(self):
         with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "", 0)) as mock_run:
-            assert await set_peer("wg0", VALID_KEY, allowed_ips="10.0.0.2/32") == ("", 0)
+            assert await set_peer("wg0", VALID_KEY, allowed_ips="10.0.0.2/32") is None
             mock_run.assert_awaited_once_with(
                 ["wg", "set", "wg0", "peer", VALID_KEY, "allowed-ips", "10.0.0.2/32"], stdin_data=None
             )
@@ -86,12 +87,11 @@ class TestSetPeer:
             assert mock_run.call_args_list[0][1]["stdin_data"] == VALID_KEY.encode()
 
     async def test_returns_wg_error(self):
-        with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "error", 1)):
-            assert await set_peer("wg0", VALID_KEY, allowed_ips="10.0.0.2/32") == ("error", 1)
-
-    async def test_missing_public_key(self):
-        with pytest.raises(ValueError, match="public_key"):
-            await set_peer("wg0", "")
+        with (
+            patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "error", 1)),
+            pytest.raises(WireGuardError, match="error"),
+        ):
+            await set_peer("wg0", VALID_KEY, allowed_ips="10.0.0.2/32")
 
 
 # ---------------------------------------------------------------------------
@@ -102,9 +102,12 @@ class TestSetPeer:
 class TestDeletePeer:
     async def test_success(self):
         with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "", 0)) as mock_run:
-            assert await delete_peer("wg0", VALID_KEY) == ("", 0)
-            mock_run.assert_awaited_once_with(["wg", "set", "wg0", "peer", VALID_KEY, "remove"])
+            assert await delete_peer("wg0", VALID_KEY) is None
+            mock_run.assert_awaited_once_with(["wg", "set", "wg0", "peer", VALID_KEY, "remove"], stdin_data=None)
 
     async def test_returns_wg_error(self):
-        with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "error", 1)):
-            assert await delete_peer("wg0", VALID_KEY) == ("error", 1)
+        with (
+            patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "error", 1)),
+            pytest.raises(WireGuardError, match="error"),
+        ):
+            await delete_peer("wg0", VALID_KEY)
