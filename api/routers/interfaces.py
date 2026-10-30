@@ -1,27 +1,27 @@
 from fastapi import APIRouter, HTTPException
 
-from api.models.interfaces import Interface, InterfaceUpdate
+from api.models.interfaces import Interface, InterfaceAction, InterfaceUpdate
 from api.routers import IfaceName
 from api.services import wireguard as wg
 
 router = APIRouter(prefix="/interfaces", tags=["interfaces"])
 
 
-@router.get("", response_model=list[Interface])
-async def list_interfaces():
+@router.get("")
+async def list_interfaces() -> list[Interface]:
     return await wg.list_interfaces()
 
 
-@router.get("/{name}", response_model=Interface)
-async def get_interface(name: IfaceName):
+@router.get("/{name}")
+async def get_interface(name: IfaceName) -> Interface:
     data = await wg.get_interface(name)
     if not data:
         raise HTTPException(status_code=404, detail=f"Interface '{name}' not found")
     return data
 
 
-@router.patch("/{name}", response_model=Interface)
-async def update_interface(name: IfaceName, body: InterfaceUpdate):
+@router.patch("/{name}")
+async def update_interface(name: IfaceName, body: InterfaceUpdate) -> Interface:
     await wg.update_interface(name, body)
     result = await wg.get_interface(name)
     if not result:
@@ -30,18 +30,18 @@ async def update_interface(name: IfaceName, body: InterfaceUpdate):
 
 
 @router.post("/{name}/up")
-async def interface_up(name: IfaceName):
+async def interface_up(name: IfaceName) -> InterfaceAction:
     await wg.interface_up(name)
-    return {"status": "up", "interface": name}
+    return InterfaceAction(status="up", interface=name)
 
 
 @router.post("/{name}/down")
-async def interface_down(name: IfaceName):
+async def interface_down(name: IfaceName) -> InterfaceAction:
     await wg.interface_down(name)
-    return {"status": "down", "interface": name}
+    return InterfaceAction(status="down", interface=name)
 
 
 @router.post("/{name}/save")
-async def interface_save(name: IfaceName):
+async def interface_save(name: IfaceName) -> InterfaceAction:
     await wg.interface_save(name)
-    return {"status": "saved", "interface": name}
+    return InterfaceAction(status="saved", interface=name)

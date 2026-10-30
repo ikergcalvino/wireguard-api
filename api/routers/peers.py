@@ -10,38 +10,38 @@ router = APIRouter(
 )
 
 
-@router.get("", response_model=list[Peer])
-async def list_peers(iface: IfaceName):
+@router.get("")
+async def list_peers(iface: IfaceName) -> list[Peer]:
     peers = await wg.list_peers(iface)
     if peers is None:
         raise HTTPException(status_code=404, detail=f"Interface '{iface}' not found")
     return peers
 
 
-@router.post("", response_model=Peer, status_code=201)
-async def create_peer(iface: IfaceName, body: PeerCreate):
+@router.post("", status_code=201)
+async def create_peer(iface: IfaceName, body: PeerCreate) -> Peer:
     await wg.set_peer(iface, body.public_key, body)
     return await _get_peer_after_change(iface, body.public_key)
 
 
 # Public keys are base64 and often contain '/', so the key segment uses the
 # path converter; WgKey still validates the whole value.
-@router.get("/{public_key:path}", response_model=Peer)
-async def get_peer(iface: IfaceName, public_key: WgKey):
+@router.get("/{public_key:path}")
+async def get_peer(iface: IfaceName, public_key: WgKey) -> Peer:
     peer = await wg.get_peer(iface, public_key)
     if not peer:
         raise HTTPException(status_code=404, detail="Peer not found")
     return peer
 
 
-@router.put("/{public_key:path}", response_model=Peer)
-async def update_peer(iface: IfaceName, public_key: WgKey, body: PeerUpdate):
+@router.put("/{public_key:path}")
+async def update_peer(iface: IfaceName, public_key: WgKey, body: PeerUpdate) -> Peer:
     await wg.set_peer(iface, public_key, body)
     return await _get_peer_after_change(iface, public_key)
 
 
 @router.delete("/{public_key:path}", status_code=204)
-async def delete_peer(iface: IfaceName, public_key: WgKey):
+async def delete_peer(iface: IfaceName, public_key: WgKey) -> None:
     await wg.delete_peer(iface, public_key)
 
 

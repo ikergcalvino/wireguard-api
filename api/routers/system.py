@@ -5,22 +5,27 @@ from fastapi import APIRouter, Depends
 from api import __version__
 from api.config import settings
 from api.dependencies import verify_api_key
+from api.models.system import CheckResult, Health, Info
 
 router = APIRouter(tags=["system"])
 
 
 @router.get("", dependencies=[Depends(verify_api_key)])
-async def info():
-    return {"name": "wireguard-api", "version": __version__}
+async def info() -> Info:
+    return Info(name="wireguard-api", version=__version__)
 
 
 # Public, so container healthchecks and load balancers need no API key.
 @router.get("/health")
-async def health():
-    checks = {
-        "config_dir": "ok" if settings.config_dir.is_dir() else "missing",
-        "wg": "ok" if shutil.which("wg") else "missing",
-        "wg_quick": "ok" if shutil.which("wg-quick") else "missing",
+async def health() -> Health:
+    checks: dict[str, CheckResult] = {
+        "config_dir": _result(settings.config_dir.is_dir()),
+        "wg": _result(shutil.which("wg") is not None),
+        "wg_quick": _result(shutil.which("wg-quick") is not None),
     }
     ok = all(v == "ok" for v in checks.values())
-    return {"status": "ok" if ok else "degraded", "checks": checks}
+    return Health(status="ok" if ok else "degraded", checks=checks)
+
+
+def _result(ok: bool) -> CheckResult:
+    return "ok" if ok else "missing"
