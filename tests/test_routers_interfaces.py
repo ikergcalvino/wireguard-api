@@ -15,7 +15,7 @@ class TestListInterfaces:
             patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "", 0)),
             patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path),
         ):
-            r = await client.get("/api/v1/interfaces")
+            r = await client.get("/interfaces")
             assert r.status_code == 200
             assert r.json() == []
 
@@ -26,7 +26,7 @@ class TestListInterfaces:
             patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=(dump, "", 0)),
             patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path),
         ):
-            r = await client.get("/api/v1/interfaces")
+            r = await client.get("/interfaces")
             assert r.status_code == 200
             data = r.json()
             assert [(i["name"], i["status"]) for i in data] == [("wg0", "up"), ("wg1", "down")]
@@ -45,7 +45,7 @@ class TestGetInterface:
             patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=(dump, "", 0)),
             patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path),
         ):
-            r = await client.get("/api/v1/interfaces/wg0")
+            r = await client.get("/interfaces/wg0")
             assert r.status_code == 200
             assert r.json()["name"] == "wg0"
             assert r.json()["status"] == "up"
@@ -57,7 +57,7 @@ class TestGetInterface:
             patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "err", 1)),
             patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path),
         ):
-            r = await client.get("/api/v1/interfaces/wg0")
+            r = await client.get("/interfaces/wg0")
             assert r.status_code == 200
             assert r.json()["status"] == "down"
 
@@ -66,11 +66,11 @@ class TestGetInterface:
             patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "err", 1)),
             patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path),
         ):
-            r = await client.get("/api/v1/interfaces/wg0")
+            r = await client.get("/interfaces/wg0")
             assert r.status_code == 404
 
     async def test_invalid_name(self, client):
-        r = await client.get("/api/v1/interfaces/invalid@name")
+        r = await client.get("/interfaces/invalid@name")
         assert r.status_code == 422
 
 
@@ -87,13 +87,13 @@ class TestUpdateInterface:
                 ("", "", 0),  # wg set
                 (dump, "", 0),  # wg show dump (get_interface)
             ]
-            r = await client.patch("/api/v1/interfaces/wg0", json={"listen_port": 51821})
+            r = await client.patch("/interfaces/wg0", json={"listen_port": 51821})
             assert r.status_code == 200
             assert r.json()["listen_port"] == 51821
 
     async def test_wg_failure(self, client):
         with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "No such device", 1)):
-            r = await client.patch("/api/v1/interfaces/wg0", json={"listen_port": 51821})
+            r = await client.patch("/interfaces/wg0", json={"listen_port": 51821})
             assert r.status_code == 400
             assert r.json()["detail"] == "No such device"
 
@@ -107,11 +107,11 @@ class TestUpdateInterface:
         ],
     )
     async def test_invalid_body(self, client, body):
-        r = await client.patch("/api/v1/interfaces/wg0", json=body)
+        r = await client.patch("/interfaces/wg0", json=body)
         assert r.status_code == 422
 
     async def test_put_not_allowed(self, client):
-        r = await client.put("/api/v1/interfaces/wg0", json={"listen_port": 51821})
+        r = await client.put("/interfaces/wg0", json={"listen_port": 51821})
         assert r.status_code == 405
 
     async def test_success_but_get_returns_none(self, client):
@@ -119,7 +119,7 @@ class TestUpdateInterface:
             patch("api.routers.interfaces.wg.update_interface", new_callable=AsyncMock, return_value=("", 0)),
             patch("api.routers.interfaces.wg.get_interface", new_callable=AsyncMock, return_value=None),
         ):
-            r = await client.patch("/api/v1/interfaces/wg0", json={"listen_port": 51821})
+            r = await client.patch("/interfaces/wg0", json={"listen_port": 51821})
             assert r.status_code == 500
             assert "could not be retrieved" in r.json()["detail"].lower()
 
@@ -131,11 +131,11 @@ class TestUpdateInterface:
 
 class TestNoFileManagement:
     async def test_create_not_available(self, client):
-        r = await client.post("/api/v1/interfaces", json={"name": "wg0"})
+        r = await client.post("/interfaces", json={"name": "wg0"})
         assert r.status_code == 405
 
     async def test_delete_not_available(self, client):
-        r = await client.delete("/api/v1/interfaces/wg0")
+        r = await client.delete("/interfaces/wg0")
         assert r.status_code == 405
 
 
@@ -152,7 +152,7 @@ class TestInterfaceActions:
             patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "", 0)),
             patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path),
         ):
-            r = await client.post(f"/api/v1/interfaces/wg0/{action}")
+            r = await client.post(f"/interfaces/wg0/{action}")
             assert r.status_code == 200
             assert r.json() == {"status": status, "interface": "wg0"}
 
@@ -163,11 +163,11 @@ class TestInterfaceActions:
             patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "fail", 1)),
             patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path),
         ):
-            r = await client.post(f"/api/v1/interfaces/wg0/{action}")
+            r = await client.post(f"/interfaces/wg0/{action}")
             assert r.status_code == 400
 
     @pytest.mark.parametrize("action", ["up", "down", "save"])
     async def test_not_found(self, client, tmp_path, action):
         with patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path):
-            r = await client.post(f"/api/v1/interfaces/wg0/{action}")
+            r = await client.post(f"/interfaces/wg0/{action}")
             assert r.status_code == 404

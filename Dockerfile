@@ -17,7 +17,7 @@ RUN pip install --no-cache-dir --no-compile .
 EXPOSE 8000/tcp
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD wget -q --spider "http://${UVICORN_HOST}:${UVICORN_PORT}/api/v1/health" || exit 1
+    CMD wget -q --spider "http://${UVICORN_HOST}:${UVICORN_PORT}/health" || exit 1
 
 # uvicorn reads UVICORN_HOST and UVICORN_PORT from the environment.
 CMD ["uvicorn", "api.main:app"]

@@ -8,8 +8,6 @@ from api.exceptions import register_exception_handlers
 from api.logging import setup_logging
 from api.routers import interfaces, peers, system
 
-API_PREFIX = "/api/v1"
-
 setup_logging()
 
 app = FastAPI(
@@ -33,7 +31,9 @@ app.add_middleware(
 
 register_exception_handlers(app)
 
+# Routes have no prefix: a reverse proxy publishes the API under a path such as /api/v1
+# and strips it, and UVICORN_ROOT_PATH tells the app so that /docs builds the right URLs.
 # The system router decides per route: the health check is public.
-app.include_router(system.router, prefix=API_PREFIX)
-app.include_router(interfaces.router, prefix=API_PREFIX, dependencies=[Depends(verify_api_key)])
-app.include_router(peers.router, prefix=API_PREFIX, dependencies=[Depends(verify_api_key)])
+app.include_router(system.router)
+app.include_router(interfaces.router, dependencies=[Depends(verify_api_key)])
+app.include_router(peers.router, dependencies=[Depends(verify_api_key)])
