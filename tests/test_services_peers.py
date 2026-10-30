@@ -2,6 +2,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from api.models.peers import PeerCreate, PeerUpdate
 from api.services.wireguard import (
     WireGuardError,
     delete_peer,
@@ -64,7 +65,7 @@ class TestGetPeer:
 class TestSetPeer:
     async def test_success(self):
         with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "", 0)) as mock_run:
-            assert await set_peer("wg0", VALID_KEY, allowed_ips="10.0.0.2/32") is None
+            assert await set_peer("wg0", VALID_KEY, PeerUpdate(allowed_ips="10.0.0.2/32")) is None
             mock_run.assert_awaited_once_with(
                 ["wg", "set", "wg0", "peer", VALID_KEY, "allowed-ips", "10.0.0.2/32"], stdin_data=None
             )
@@ -74,10 +75,13 @@ class TestSetPeer:
             await set_peer(
                 "wg0",
                 VALID_KEY,
-                allowed_ips="10.0.0.2/32",
-                endpoint="1.2.3.4:51820",
-                preshared_key=VALID_KEY,
-                persistent_keepalive=25,
+                PeerCreate(
+                    public_key=VALID_KEY,
+                    allowed_ips="10.0.0.2/32",
+                    endpoint="1.2.3.4:51820",
+                    preshared_key=VALID_KEY,
+                    persistent_keepalive=25,
+                ),
             )
             args = mock_run.call_args_list[0][0][0]
             assert "allowed-ips" in args
@@ -91,7 +95,7 @@ class TestSetPeer:
             patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "error", 1)),
             pytest.raises(WireGuardError, match="error"),
         ):
-            await set_peer("wg0", VALID_KEY, allowed_ips="10.0.0.2/32")
+            await set_peer("wg0", VALID_KEY, PeerUpdate(allowed_ips="10.0.0.2/32"))
 
 
 # ---------------------------------------------------------------------------

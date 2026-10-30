@@ -7,7 +7,7 @@ from pathlib import Path
 from api.config import settings
 from api.models import IFACE_NAME_PATTERN
 from api.models.interfaces import Interface, InterfaceUpdate
-from api.models.peers import Peer
+from api.models.peers import Peer, PeerCreate, PeerUpdate
 
 logger = logging.getLogger("wireguard-api")
 
@@ -218,24 +218,18 @@ async def get_peer(iface: str, public_key: str) -> Peer | None:
     return next((p for p in peers if p.public_key == public_key), None)
 
 
-async def set_peer(
-    iface: str,
-    public_key: str,
-    allowed_ips: str | None = None,
-    endpoint: str | None = None,
-    preshared_key: str | None = None,
-    persistent_keepalive: int | None = None,
-) -> None:
+async def set_peer(iface: str, public_key: str, peer: PeerCreate | PeerUpdate) -> None:
+    """Create or update a peer. Fields left as None are not changed."""
     args = ["wg", "set", iface, "peer", public_key]
-    if allowed_ips:
-        args += ["allowed-ips", allowed_ips]
-    if endpoint:
-        args += ["endpoint", endpoint]
-    if preshared_key:
+    if peer.allowed_ips:
+        args += ["allowed-ips", peer.allowed_ips]
+    if peer.endpoint:
+        args += ["endpoint", peer.endpoint]
+    if peer.preshared_key:
         args += ["preshared-key", "/dev/stdin"]
-    if persistent_keepalive is not None:
-        args += ["persistent-keepalive", str(persistent_keepalive)]
-    stdin_data = preshared_key.encode() if preshared_key else None
+    if peer.persistent_keepalive is not None:
+        args += ["persistent-keepalive", str(peer.persistent_keepalive)]
+    stdin_data = peer.preshared_key.encode() if peer.preshared_key else None
     logger.info("setting peer %s on %s", public_key[:8], iface)
     await _check(args, stdin_data=stdin_data)
 

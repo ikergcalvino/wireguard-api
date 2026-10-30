@@ -2,7 +2,7 @@ import pytest
 from pydantic import ValidationError
 
 from api.models.interfaces import Interface, InterfaceUpdate
-from api.models.peers import Peer
+from api.models.peers import Peer, PeerCreate, PeerUpdate
 from tests.conftest import VALID_KEY
 
 INVALID_KEY = "not-a-valid-key"
@@ -90,60 +90,6 @@ class TestInterfaceUpdate:
 
 
 class TestPeer:
-    def test_valid(self):
-        peer = Peer(public_key=VALID_KEY, allowed_ips="10.0.0.2/32")
-        assert peer.public_key == VALID_KEY
-
-    def test_minimal(self):
-        peer = Peer()
-        assert peer.public_key is None
-        assert peer.allowed_ips is None
-
-    def test_invalid_public_key(self):
-        with pytest.raises(ValidationError, match="key format"):
-            Peer(public_key=INVALID_KEY)
-
-    def test_invalid_preshared_key(self):
-        with pytest.raises(ValidationError, match="key format"):
-            Peer(public_key=VALID_KEY, preshared_key=INVALID_KEY)
-
-    def test_valid_allowed_ips(self):
-        peer = Peer(public_key=VALID_KEY, allowed_ips="10.0.0.2/32")
-        assert peer.allowed_ips == "10.0.0.2/32"
-
-    def test_comma_separated_allowed_ips(self):
-        peer = Peer(public_key=VALID_KEY, allowed_ips="10.0.0.0/24, fd00::/64")
-        assert peer.allowed_ips == "10.0.0.0/24, fd00::/64"
-
-    def test_catch_all_allowed_ips(self):
-        peer = Peer(public_key=VALID_KEY, allowed_ips="0.0.0.0/0, ::/0")
-        assert peer.allowed_ips == "0.0.0.0/0, ::/0"
-
-    def test_invalid_allowed_ips(self):
-        with pytest.raises(ValidationError, match="CIDR"):
-            Peer(public_key=VALID_KEY, allowed_ips="not-a-cidr")
-
-    def test_extra_fields_forbidden(self):
-        with pytest.raises(ValidationError, match="extra"):
-            Peer(public_key=VALID_KEY, unknown="x")
-
-    def test_persistent_keepalive_range(self):
-        with pytest.raises(ValidationError):
-            Peer(public_key=VALID_KEY, persistent_keepalive=-1)
-        with pytest.raises(ValidationError):
-            Peer(public_key=VALID_KEY, persistent_keepalive=70000)
-
-    def test_all_wg_fields(self):
-        peer = Peer(
-            public_key=VALID_KEY,
-            allowed_ips="10.0.0.2/32",
-            endpoint="1.2.3.4:51820",
-            preshared_key=VALID_KEY,
-            persistent_keepalive=25,
-        )
-        assert peer.endpoint == "1.2.3.4:51820"
-        assert peer.persistent_keepalive == 25
-
     def test_runtime_fields(self):
         peer = Peer(
             public_key=VALID_KEY,
@@ -155,6 +101,68 @@ class TestPeer:
             persistent_keepalive=25,
         )
         assert peer.transfer_rx == 1024
+
+    def test_has_no_preshared_key(self):
+        assert "preshared_key" not in Peer.model_fields
+
+
+class TestPeerCreate:
+    def test_valid(self):
+        peer = PeerCreate(public_key=VALID_KEY, allowed_ips="10.0.0.2/32")
+        assert peer.public_key == VALID_KEY
+
+    @pytest.mark.parametrize("missing", ["public_key", "allowed_ips"])
+    def test_required_fields(self, missing):
+        data = {"public_key": VALID_KEY, "allowed_ips": "10.0.0.2/32"}
+        del data[missing]
+        with pytest.raises(ValidationError, match=missing):
+            PeerCreate(**data)
+
+    def test_invalid_public_key(self):
+        with pytest.raises(ValidationError, match="key format"):
+            PeerCreate(public_key=INVALID_KEY, allowed_ips="10.0.0.2/32")
+
+    def test_invalid_allowed_ips(self):
+        with pytest.raises(ValidationError, match="CIDR"):
+            PeerCreate(public_key=VALID_KEY, allowed_ips="not-a-cidr")
+
+    def test_all_wg_fields(self):
+        peer = PeerCreate(
+            public_key=VALID_KEY,
+            allowed_ips="10.0.0.2/32",
+            endpoint="1.2.3.4:51820",
+            preshared_key=VALID_KEY,
+            persistent_keepalive=25,
+        )
+        assert peer.endpoint == "1.2.3.4:51820"
+        assert peer.persistent_keepalive == 25
+
+
+class TestPeerUpdate:
+    def test_empty(self):
+        assert PeerUpdate().model_dump(exclude_unset=True) == {}
+
+    @pytest.mark.parametrize("ips", ["10.0.0.2/32", "10.0.0.0/24, fd00::/64", "0.0.0.0/0, ::/0"])
+    def test_valid_allowed_ips(self, ips):
+        assert PeerUpdate(allowed_ips=ips).allowed_ips == ips
+
+    def test_invalid_allowed_ips(self):
+        with pytest.raises(ValidationError, match="CIDR"):
+            PeerUpdate(allowed_ips="not-a-cidr")
+
+    def test_invalid_preshared_key(self):
+        with pytest.raises(ValidationError, match="key format"):
+            PeerUpdate(preshared_key=INVALID_KEY)
+
+    @pytest.mark.parametrize("keepalive", [-1, 70000])
+    def test_persistent_keepalive_range(self, keepalive):
+        with pytest.raises(ValidationError):
+            PeerUpdate(persistent_keepalive=keepalive)
+
+    @pytest.mark.parametrize("field", ["public_key", "latest_handshake", "transfer_rx", "unknown"])
+    def test_read_only_and_unknown_fields_forbidden(self, field):
+        with pytest.raises(ValidationError, match="extra"):
+            PeerUpdate(**{field: 1})
 
 
 class TestPeerEndpoint:
@@ -170,7 +178,7 @@ class TestPeerEndpoint:
         ],
     )
     def test_valid(self, endpoint):
-        assert Peer(public_key=VALID_KEY, endpoint=endpoint).endpoint == endpoint
+        assert PeerUpdate(endpoint=endpoint).endpoint == endpoint
 
     @pytest.mark.parametrize(
         "endpoint",
@@ -192,4 +200,4 @@ class TestPeerEndpoint:
     )
     def test_invalid(self, endpoint):
         with pytest.raises(ValidationError, match="Invalid endpoint"):
-            Peer(public_key=VALID_KEY, endpoint=endpoint)
+            PeerUpdate(endpoint=endpoint)

@@ -207,8 +207,9 @@ class TestPresharedKeyNotExposed:
 
     async def test_schema_is_write_only(self, client):
         schemas = (await client.get("/openapi.json")).json()["components"]["schemas"]
-        assert schemas["Peer-Input"]["properties"]["preshared_key"]["writeOnly"] is True
-        assert "preshared_key" not in schemas["Peer-Output"]["properties"]
+        assert schemas["PeerCreate"]["properties"]["preshared_key"]["writeOnly"] is True
+        assert schemas["PeerUpdate"]["properties"]["preshared_key"]["writeOnly"] is True
+        assert "preshared_key" not in schemas["Peer"]["properties"]
 
 
 class TestEndpointValidation:
@@ -220,3 +221,16 @@ class TestEndpointValidation:
             )
             assert r.status_code == 422
             mock_run.assert_not_awaited()
+
+
+class TestPeerBodies:
+    async def test_update_rejects_public_key_in_body(self, client):
+        r = await client.put(f"/api/v1/interfaces/wg0/peers/{VALID_KEY}", json={"public_key": VALID_KEY})
+        assert r.status_code == 422
+
+    async def test_create_rejects_read_only_fields(self, client):
+        r = await client.post(
+            "/api/v1/interfaces/wg0/peers",
+            json={"public_key": VALID_KEY, "allowed_ips": "10.0.0.2/32", "transfer_rx": 0},
+        )
+        assert r.status_code == 422

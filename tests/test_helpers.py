@@ -55,7 +55,6 @@ class TestParsePeersDump:
         assert len(peers) == 1
         assert peers[0].public_key == VALID_KEY
         assert peers[0].endpoint == "1.2.3.4:51820"
-        assert peers[0].preshared_key is None
         assert peers[0].persistent_keepalive is None
 
     def test_parses_multiple_peers(self):

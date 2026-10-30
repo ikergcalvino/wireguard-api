@@ -167,9 +167,9 @@ wireguard-api/
 │   ├── logging.py         # Logging configuration (dictConfig)
 │   ├── main.py            # FastAPI app: middleware, exception handlers and routers
 │   ├── models/
-│   │   ├── __init__.py    # Shared validation patterns
+│   │   ├── __init__.py    # Shared validation patterns and the WireGuardKey type
 │   │   ├── interfaces.py  # Interface and InterfaceUpdate models
-│   │   └── peers.py       # Peer model
+│   │   └── peers.py       # Peer, PeerCreate and PeerUpdate models
 │   ├── routers/
 │   │   ├── __init__.py    # Shared path parameter types
 │   │   ├── interfaces.py  # Interface endpoints

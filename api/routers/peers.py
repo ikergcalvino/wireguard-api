@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 
-from api.models.peers import Peer
+from api.models.peers import Peer, PeerCreate, PeerUpdate
 from api.routers import IfaceName, WgKey
 from api.services import wireguard as wg
 
@@ -19,19 +19,8 @@ async def list_peers(iface: IfaceName):
 
 
 @router.post("", response_model=Peer, status_code=201)
-async def create_peer(iface: IfaceName, body: Peer):
-    if not body.public_key:
-        raise HTTPException(status_code=422, detail="public_key is required")
-    if not body.allowed_ips:
-        raise HTTPException(status_code=422, detail="allowed_ips is required")
-    await wg.set_peer(
-        iface=iface,
-        public_key=body.public_key,
-        allowed_ips=body.allowed_ips,
-        endpoint=body.endpoint,
-        preshared_key=body.preshared_key,
-        persistent_keepalive=body.persistent_keepalive,
-    )
+async def create_peer(iface: IfaceName, body: PeerCreate):
+    await wg.set_peer(iface, body.public_key, body)
     return await _get_peer_after_change(iface, body.public_key)
 
 
@@ -46,15 +35,8 @@ async def get_peer(iface: IfaceName, public_key: WgKey):
 
 
 @router.put("/{public_key:path}", response_model=Peer)
-async def update_peer(iface: IfaceName, public_key: WgKey, body: Peer):
-    await wg.set_peer(
-        iface=iface,
-        public_key=public_key,
-        allowed_ips=body.allowed_ips,
-        endpoint=body.endpoint,
-        preshared_key=body.preshared_key,
-        persistent_keepalive=body.persistent_keepalive,
-    )
+async def update_peer(iface: IfaceName, public_key: WgKey, body: PeerUpdate):
+    await wg.set_peer(iface, public_key, body)
     return await _get_peer_after_change(iface, public_key)
 
 
