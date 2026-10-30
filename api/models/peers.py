@@ -1,7 +1,7 @@
 import re
 from ipaddress import IPv4Address, IPv6Address, ip_network
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from api.models import WireGuardKey
 
@@ -31,7 +31,7 @@ KEEPALIVE_DESCRIPTION = (
 class Peer(BaseModel):
     """Runtime view of a peer, as reported by `wg show`. The preshared key is never returned."""
 
-    public_key: str = Field(..., description="The peer's base64 public key.")
+    public_key: str = Field(description="The peer's base64 public key.")
     allowed_ips: str | None = Field(None, description=ALLOWED_IPS_DESCRIPTION)
     endpoint: str | None = Field(None, description=ENDPOINT_DESCRIPTION)
     persistent_keepalive: int | None = Field(None, description=KEEPALIVE_DESCRIPTION)
@@ -43,7 +43,7 @@ class Peer(BaseModel):
 class _PeerSettings(BaseModel):
     """Fields shared by PeerCreate and PeerUpdate. Each declares allowed_ips with its own requiredness."""
 
-    model_config = {"extra": "forbid"}
+    model_config = ConfigDict(extra="forbid")
 
     endpoint: str | None = Field(None, description=ENDPOINT_DESCRIPTION)
     preshared_key: WireGuardKey | None = Field(
@@ -77,8 +77,8 @@ class _PeerSettings(BaseModel):
 class PeerCreate(_PeerSettings):
     """A new peer, added with `wg set`. public_key and allowed_ips are required."""
 
-    public_key: WireGuardKey = Field(..., description="A base64 public key calculated by wg pubkey.")
-    allowed_ips: str = Field(..., description=ALLOWED_IPS_DESCRIPTION)
+    public_key: WireGuardKey = Field(description="A base64 public key calculated by wg pubkey.")
+    allowed_ips: str = Field(description=ALLOWED_IPS_DESCRIPTION)
 
 
 class PeerUpdate(_PeerSettings):

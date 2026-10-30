@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import asyncio
 import logging
 from pathlib import Path
@@ -48,10 +46,8 @@ async def _run(args: list[str], stdin_data: bytes | None = None) -> tuple[str, s
         logger.error("cannot execute %s: %s", args[0], exc)
         raise WireGuardUnavailable(f"Cannot execute {args[0]}: {exc.strerror}") from exc
     try:
-        stdout, stderr = await asyncio.wait_for(
-            proc.communicate(input=stdin_data),
-            timeout=_CMD_TIMEOUT,
-        )
+        async with asyncio.timeout(_CMD_TIMEOUT):
+            stdout, stderr = await proc.communicate(input=stdin_data)
     except TimeoutError:
         proc.kill()
         await proc.wait()

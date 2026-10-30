@@ -1,7 +1,7 @@
 import re
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from api.models import IFACE_NAME_PATTERN, WireGuardKey
 
@@ -12,12 +12,10 @@ class Interface(BaseModel):
     """Runtime view of a WireGuard interface, as reported by `wg show`."""
 
     name: str = Field(
-        ...,
         description="Interface name. Any free-form string [a-zA-Z0-9_=+.-]{1,15} will work. "
         "Recommended names include 'wg0' or 'wgvpn0' or even 'wgmgmtlan0'.",
     )
     status: Literal["up", "down"] = Field(
-        ...,
         description="Whether the interface is currently running ('up') or only exists as a config file ('down'). "
         "Runtime fields are only populated when the interface is up.",
     )
@@ -51,7 +49,7 @@ class Interface(BaseModel):
 class InterfaceUpdate(BaseModel):
     """Runtime settings applied with `wg set`. Omitted fields are left unchanged."""
 
-    model_config = {"extra": "forbid"}
+    model_config = ConfigDict(extra="forbid")
 
     private_key: WireGuardKey | None = Field(
         None,
