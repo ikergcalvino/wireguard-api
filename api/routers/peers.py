@@ -31,8 +31,11 @@ async def get_peer(iface: IfaceName, public_key: WgKey) -> Peer:
     return peer
 
 
-@router.put("/{public_key:path}")
+@router.patch("/{public_key:path}")
 async def update_peer(iface: IfaceName, public_key: WgKey, body: PeerUpdate) -> Peer:
+    # wg set would create a missing peer; creating is POST's job.
+    if await wg.get_peer(iface, public_key) is None:
+        raise HTTPException(status_code=404, detail="Peer not found")
     await wg.set_peer(iface, public_key, body)
     return await _get_peer_after_change(iface, public_key)
 

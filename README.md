@@ -82,12 +82,12 @@ Interfaces are not created or deleted through the API: add or remove their `.con
 | `GET`    | `/api/v1/interfaces/{iface}/peers`              | List peers  |
 | `POST`   | `/api/v1/interfaces/{iface}/peers`              | Add peer    |
 | `GET`    | `/api/v1/interfaces/{iface}/peers/{public_key}` | Get peer    |
-| `PUT`    | `/api/v1/interfaces/{iface}/peers/{public_key}` | Update peer |
+| `PATCH`  | `/api/v1/interfaces/{iface}/peers/{public_key}` | Update peer |
 | `DELETE` | `/api/v1/interfaces/{iface}/peers/{public_key}` | Remove peer |
 
-Peers are managed on running interfaces only. `POST` requires `public_key` and `allowed_ips`; `PUT` sets the fields
-you send. `preshared_key` is write-only: it is accepted but never returned. Public keys can be used in the path as
-they are, even when they contain `/`.
+Peers are managed on running interfaces only. `POST` requires `public_key` and `allowed_ips`; `PATCH` changes only
+the fields you send, on an existing peer. `preshared_key` is write-only: it is accepted but never returned. Public
+keys can be used in the path as they are, even when they contain `/`.
 
 > [!NOTE]
 > Peer and interface changes apply to the running interface only. Call `POST /api/v1/interfaces/{name}/save` to
