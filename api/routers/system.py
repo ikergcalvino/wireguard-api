@@ -10,7 +10,7 @@ from api.models.system import CheckResult, Health, Info
 router = APIRouter(tags=["system"])
 
 
-@router.get("/", dependencies=[Depends(verify_api_key)])
+@router.get("", dependencies=[Depends(verify_api_key)])
 async def info() -> Info:
     return Info(name="wireguard-api", version=__version__)
 

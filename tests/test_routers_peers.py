@@ -13,7 +13,7 @@ class TestListPeers:
     async def test_success(self, client):
         dump = f"PRIVATE\tPUBLIC\t51820\toff\n{VALID_KEY}\t(none)\t1.2.3.4:51820\t10.0.0.2/32\t0\t0\t0\toff"
         with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=(dump, "", 0)):
-            r = await client.get("/interfaces/wg0/peers")
+            r = await client.get("/api/v1/interfaces/wg0/peers")
             assert r.status_code == 200
             assert len(r.json()) == 1
 
@@ -22,7 +22,7 @@ class TestListPeers:
             patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "err", 1)),
             patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path),
         ):
-            r = await client.get("/interfaces/wg0/peers")
+            r = await client.get("/api/v1/interfaces/wg0/peers")
             assert r.status_code == 404
 
 
@@ -40,7 +40,7 @@ class TestCreatePeer:
                 (dump, "", 0),  # wg show dump (get_peer)
             ]
             r = await client.post(
-                "/interfaces/wg0/peers",
+                "/api/v1/interfaces/wg0/peers",
                 json={"public_key": VALID_KEY, "allowed_ips": "10.0.0.2/32"},
             )
             assert r.status_code == 201
@@ -48,21 +48,21 @@ class TestCreatePeer:
 
     async def test_missing_public_key(self, client):
         r = await client.post(
-            "/interfaces/wg0/peers",
+            "/api/v1/interfaces/wg0/peers",
             json={"allowed_ips": "10.0.0.2/32"},
         )
         assert r.status_code == 422
 
     async def test_missing_allowed_ips(self, client):
         r = await client.post(
-            "/interfaces/wg0/peers",
+            "/api/v1/interfaces/wg0/peers",
             json={"public_key": VALID_KEY},
         )
         assert r.status_code == 422
 
     async def test_invalid_key(self, client):
         r = await client.post(
-            "/interfaces/wg0/peers",
+            "/api/v1/interfaces/wg0/peers",
             json={"public_key": "bad", "allowed_ips": "10.0.0.2/32"},
         )
         assert r.status_code == 422
@@ -77,14 +77,14 @@ class TestGetPeer:
     async def test_success(self, client):
         dump = f"PRIVATE\tPUBLIC\t51820\toff\n{VALID_KEY}\t(none)\t1.2.3.4:51820\t10.0.0.2/32\t0\t0\t0\toff"
         with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=(dump, "", 0)):
-            r = await client.get(f"/interfaces/wg0/peers/{VALID_KEY}")
+            r = await client.get(f"/api/v1/interfaces/wg0/peers/{VALID_KEY}")
             assert r.status_code == 200
             assert r.json()["public_key"] == VALID_KEY
 
     async def test_not_found(self, client):
         dump = "PRIVATE\tPUBLIC\t51820\toff"
         with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=(dump, "", 0)):
-            r = await client.get(f"/interfaces/wg0/peers/{VALID_KEY}")
+            r = await client.get(f"/api/v1/interfaces/wg0/peers/{VALID_KEY}")
             assert r.status_code == 404
 
     async def test_interface_not_found(self, client, tmp_path):
@@ -92,7 +92,7 @@ class TestGetPeer:
             patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "err", 1)),
             patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path),
         ):
-            r = await client.get(f"/interfaces/wg0/peers/{VALID_KEY}")
+            r = await client.get(f"/api/v1/interfaces/wg0/peers/{VALID_KEY}")
             assert r.status_code == 404
 
 
@@ -110,14 +110,14 @@ class TestUpdatePeer:
                 (dump, "", 0),  # wg show dump (get_peer)
             ]
             r = await client.put(
-                f"/interfaces/wg0/peers/{VALID_KEY}",
+                f"/api/v1/interfaces/wg0/peers/{VALID_KEY}",
                 json={"allowed_ips": "10.0.0.3/32"},
             )
             assert r.status_code == 200
 
     async def test_extra_field_rejected(self, client):
         r = await client.put(
-            f"/interfaces/wg0/peers/{VALID_KEY}",
+            f"/api/v1/interfaces/wg0/peers/{VALID_KEY}",
             json={"allowed_ips": "10.0.0.3/32", "unknown": "x"},
         )
         assert r.status_code == 422
@@ -131,12 +131,12 @@ class TestUpdatePeer:
 class TestDeletePeer:
     async def test_success(self, client):
         with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "", 0)):
-            r = await client.delete(f"/interfaces/wg0/peers/{VALID_KEY}")
+            r = await client.delete(f"/api/v1/interfaces/wg0/peers/{VALID_KEY}")
             assert r.status_code == 204
 
     async def test_wg_failure(self, client):
         with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "No such device", 1)):
-            r = await client.delete(f"/interfaces/wg0/peers/{VALID_KEY}")
+            r = await client.delete(f"/api/v1/interfaces/wg0/peers/{VALID_KEY}")
             assert r.status_code == 400
 
 
@@ -152,7 +152,7 @@ class TestSlashInPublicKey:
     async def test_get(self, client, path_key):
         dump = f"PRIVATE\tPUBLIC\t51820\toff\n{SLASH_KEY}\t(none)\t(none)\t10.0.0.2/32\t0\t0\t0\toff"
         with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=(dump, "", 0)):
-            r = await client.get(f"/interfaces/wg0/peers/{path_key}")
+            r = await client.get(f"/api/v1/interfaces/wg0/peers/{path_key}")
             assert r.status_code == 200
             assert r.json()["public_key"] == SLASH_KEY
 
@@ -160,18 +160,18 @@ class TestSlashInPublicKey:
         dump = f"PRIVATE\tPUBLIC\t51820\toff\n{SLASH_KEY}\t(none)\t(none)\t10.0.0.3/32\t0\t0\t0\toff"
         with patch("api.services.wireguard._run", new_callable=AsyncMock) as mock_run:
             mock_run.side_effect = [("", "", 0), (dump, "", 0)]
-            r = await client.put(f"/interfaces/wg0/peers/{SLASH_KEY}", json={"allowed_ips": "10.0.0.3/32"})
+            r = await client.put(f"/api/v1/interfaces/wg0/peers/{SLASH_KEY}", json={"allowed_ips": "10.0.0.3/32"})
             assert r.status_code == 200
             assert mock_run.call_args_list[0][0][0][:5] == ["wg", "set", "wg0", "peer", SLASH_KEY]
 
     async def test_delete(self, client):
         with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "", 0)) as mock_run:
-            r = await client.delete(f"/interfaces/wg0/peers/{SLASH_KEY}")
+            r = await client.delete(f"/api/v1/interfaces/wg0/peers/{SLASH_KEY}")
             assert r.status_code == 204
             mock_run.assert_awaited_once_with(["wg", "set", "wg0", "peer", SLASH_KEY, "remove"], stdin_data=None)
 
     async def test_extra_segments_rejected(self, client):
-        r = await client.get(f"/interfaces/wg0/peers/{SLASH_KEY}/extra")
+        r = await client.get(f"/api/v1/interfaces/wg0/peers/{SLASH_KEY}/extra")
         assert r.status_code == 422
 
 
@@ -185,20 +185,20 @@ class TestPresharedKeyNotExposed:
 
     async def test_list(self, client):
         with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=(self.DUMP, "", 0)):
-            r = await client.get("/interfaces/wg0/peers")
+            r = await client.get("/api/v1/interfaces/wg0/peers")
             assert r.status_code == 200
             assert "preshared_key" not in r.json()[0]
 
     async def test_get(self, client):
         with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=(self.DUMP, "", 0)):
-            r = await client.get(f"/interfaces/wg0/peers/{VALID_KEY}")
+            r = await client.get(f"/api/v1/interfaces/wg0/peers/{VALID_KEY}")
             assert "preshared_key" not in r.json()
 
     async def test_create_accepts_but_does_not_return_it(self, client):
         with patch("api.services.wireguard._run", new_callable=AsyncMock) as mock_run:
             mock_run.side_effect = [("", "", 0), (self.DUMP, "", 0)]
             r = await client.post(
-                "/interfaces/wg0/peers",
+                "/api/v1/interfaces/wg0/peers",
                 json={"public_key": VALID_KEY, "allowed_ips": "10.0.0.2/32", "preshared_key": VALID_KEY},
             )
             assert r.status_code == 201
@@ -206,7 +206,7 @@ class TestPresharedKeyNotExposed:
             assert mock_run.call_args_list[0][1]["stdin_data"] == VALID_KEY.encode()
 
     async def test_schema_is_write_only(self, client):
-        schemas = (await client.get("/openapi.json")).json()["components"]["schemas"]
+        schemas = (await client.get("/api/v1/openapi.json")).json()["components"]["schemas"]
         assert schemas["PeerCreate"]["properties"]["preshared_key"]["writeOnly"] is True
         assert schemas["PeerUpdate"]["properties"]["preshared_key"]["writeOnly"] is True
         assert "preshared_key" not in schemas["Peer"]["properties"]
@@ -216,7 +216,7 @@ class TestEndpointValidation:
     async def test_invalid_endpoint_never_reaches_wg(self, client):
         with patch("api.services.wireguard._run", new_callable=AsyncMock) as mock_run:
             r = await client.post(
-                "/interfaces/wg0/peers",
+                "/api/v1/interfaces/wg0/peers",
                 json={"public_key": VALID_KEY, "allowed_ips": "10.0.0.2/32", "endpoint": "--help:1"},
             )
             assert r.status_code == 422
@@ -225,12 +225,12 @@ class TestEndpointValidation:
 
 class TestPeerBodies:
     async def test_update_rejects_public_key_in_body(self, client):
-        r = await client.put(f"/interfaces/wg0/peers/{VALID_KEY}", json={"public_key": VALID_KEY})
+        r = await client.put(f"/api/v1/interfaces/wg0/peers/{VALID_KEY}", json={"public_key": VALID_KEY})
         assert r.status_code == 422
 
     async def test_create_rejects_read_only_fields(self, client):
         r = await client.post(
-            "/interfaces/wg0/peers",
+            "/api/v1/interfaces/wg0/peers",
             json={"public_key": VALID_KEY, "allowed_ips": "10.0.0.2/32", "transfer_rx": 0},
         )
         assert r.status_code == 422

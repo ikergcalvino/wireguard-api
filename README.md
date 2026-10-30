@@ -52,22 +52,19 @@ Each [release](https://github.com/ikergcalvino/wireguard-api/releases) also publ
 
 ## API Reference
 
-Every endpoint requires the `X-API-Key: <key>` header, except the health check. Paths are relative to where the
-API is published: at the root of the server by default, or under a prefix such as `/api/v1` behind a reverse
-proxy (see [Behind a reverse proxy](#behind-a-reverse-proxy)).
-
-Interactive docs: `/docs` (Swagger UI) and `/redoc` (ReDoc).
+Everything is served under `/api/v1`, including the interactive docs: `/api/v1/docs` (Swagger UI) and
+`/api/v1/redoc` (ReDoc). Every endpoint requires the `X-API-Key: <key>` header, except the health check.
 
 ### Interfaces
 
-| Method  | Path                      | Description                                                 |
-|---------|---------------------------|-------------------------------------------------------------|
-| `GET`   | `/interfaces`             | List running interfaces and those with a `.conf` file       |
-| `GET`   | `/interfaces/{name}`      | Get an interface                                            |
-| `PATCH` | `/interfaces/{name}`      | Update `private_key`, `listen_port` or `fw_mark` at runtime |
-| `POST`  | `/interfaces/{name}/up`   | Bring the interface up (`wg-quick up`)                      |
-| `POST`  | `/interfaces/{name}/down` | Bring the interface down (`wg-quick down`)                  |
-| `POST`  | `/interfaces/{name}/save` | Save the runtime state to its `.conf` (`wg-quick save`)     |
+| Method  | Path                             | Description                                                 |
+|---------|----------------------------------|-------------------------------------------------------------|
+| `GET`   | `/api/v1/interfaces`             | List running interfaces and those with a `.conf` file       |
+| `GET`   | `/api/v1/interfaces/{name}`      | Get an interface                                            |
+| `PATCH` | `/api/v1/interfaces/{name}`      | Update `private_key`, `listen_port` or `fw_mark` at runtime |
+| `POST`  | `/api/v1/interfaces/{name}/up`   | Bring the interface up (`wg-quick up`)                      |
+| `POST`  | `/api/v1/interfaces/{name}/down` | Bring the interface down (`wg-quick down`)                  |
+| `POST`  | `/api/v1/interfaces/{name}/save` | Save the runtime state to its `.conf` (`wg-quick save`)     |
 
 An interface has a `status` of `"up"` or `"down"`. Running interfaces also report `public_key`, `listen_port`,
 `fw_mark` and `num_peers`; an interface that only has a `.conf` file is reported by name. `PATCH` changes only the
@@ -77,28 +74,28 @@ Interfaces are not created or deleted through the API: add or remove their `.con
 
 ### Peers
 
-| Method   | Path                                     | Description |
-|----------|------------------------------------------|-------------|
-| `GET`    | `/interfaces/{iface}/peers`              | List peers  |
-| `POST`   | `/interfaces/{iface}/peers`              | Add peer    |
-| `GET`    | `/interfaces/{iface}/peers/{public_key}` | Get peer    |
-| `PUT`    | `/interfaces/{iface}/peers/{public_key}` | Update peer |
-| `DELETE` | `/interfaces/{iface}/peers/{public_key}` | Remove peer |
+| Method   | Path                                            | Description |
+|----------|-------------------------------------------------|-------------|
+| `GET`    | `/api/v1/interfaces/{iface}/peers`              | List peers  |
+| `POST`   | `/api/v1/interfaces/{iface}/peers`              | Add peer    |
+| `GET`    | `/api/v1/interfaces/{iface}/peers/{public_key}` | Get peer    |
+| `PUT`    | `/api/v1/interfaces/{iface}/peers/{public_key}` | Update peer |
+| `DELETE` | `/api/v1/interfaces/{iface}/peers/{public_key}` | Remove peer |
 
 Peers are managed on running interfaces only. `POST` requires `public_key` and `allowed_ips`; `PUT` sets the fields
 you send. `preshared_key` is write-only: it is accepted but never returned. Public keys can be used in the path as
 they are, even when they contain `/`.
 
 > [!NOTE]
-> Peer and interface changes apply to the running interface only. Call `POST /interfaces/{name}/save` to
+> Peer and interface changes apply to the running interface only. Call `POST /api/v1/interfaces/{name}/save` to
 > persist them, or they are lost when the interface goes down.
 
 ### Other
 
-| Method | Path      | Description               |
-|--------|-----------|---------------------------|
-| `GET`  | `/`       | API info                  |
-| `GET`  | `/health` | Health check (no API key) |
+| Method | Path             | Description               |
+|--------|------------------|---------------------------|
+| `GET`  | `/api/v1`        | API info                  |
+| `GET`  | `/api/v1/health` | Health check (no API key) |
 
 When `wg` or `wg-quick` fails, the API answers `400` with the command's error message as `detail`. Invalid input
 is rejected with `422`, actions on an interface without a `.conf` file with `404`, and the API answers `503` if it
@@ -108,11 +105,11 @@ cannot execute `wg` or `wg-quick` at all.
 
 ```bash
 # Bring up an interface defined in /etc/wireguard/wg0.conf
-curl -X POST http://localhost:8000/interfaces/wg0/up \
+curl -X POST http://localhost:8000/api/v1/interfaces/wg0/up \
   -H "X-API-Key: your-secret-api-key"
 
 # Add a peer
-curl -X POST http://localhost:8000/interfaces/wg0/peers \
+curl -X POST http://localhost:8000/api/v1/interfaces/wg0/peers \
   -H "Content-Type: application/json" \
   -H "X-API-Key: your-secret-api-key" \
   -d '{
@@ -121,40 +118,34 @@ curl -X POST http://localhost:8000/interfaces/wg0/peers \
   }'
 
 # Change the listen port of the running interface
-curl -X PATCH http://localhost:8000/interfaces/wg0 \
+curl -X PATCH http://localhost:8000/api/v1/interfaces/wg0 \
   -H "Content-Type: application/json" \
   -H "X-API-Key: your-secret-api-key" \
   -d '{"listen_port": 51821}'
 
 # Persist the runtime state to /etc/wireguard/wg0.conf
-curl -X POST http://localhost:8000/interfaces/wg0/save \
+curl -X POST http://localhost:8000/api/v1/interfaces/wg0/save \
   -H "X-API-Key: your-secret-api-key"
 ```
 
 ## Configuration
 
-| Variable            | Default          | Description                                                         |
-|---------------------|------------------|---------------------------------------------------------------------|
-| `WG_API_KEY`        | (required)       | API key for authentication, at least 16 characters                  |
-| `WG_LOG_LEVEL`      | `INFO`           | Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL                    |
-| `WG_CORS_ORIGINS`   | `*`              | Comma-separated allowed CORS origins                                |
-| `WG_CONFIG_DIR`     | `/etc/wireguard` | Directory with the WireGuard `.conf` files                          |
-| `UVICORN_ROOT_PATH` | (empty)          | Path prefix a reverse proxy publishes the API under, e.g. `/api/v1` |
+| Variable          | Default          | Description                                        |
+|-------------------|------------------|----------------------------------------------------|
+| `WG_API_KEY`      | (required)       | API key for authentication, at least 16 characters |
+| `WG_LOG_LEVEL`    | `INFO`           | Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL   |
+| `WG_CORS_ORIGINS` | `*`              | Comma-separated allowed CORS origins               |
+| `WG_CONFIG_DIR`   | `/etc/wireguard` | Directory with the WireGuard `.conf` files         |
 
 ### Behind a reverse proxy
 
-The API has no path prefix of its own. To publish it under one, such as `/api/v1`, let the reverse proxy strip the
-prefix and tell the API with `UVICORN_ROOT_PATH`, so that `/docs` and the OpenAPI schema use the public URLs.
-With nginx:
+Since everything lives under `/api/v1`, a reverse proxy only has to forward that path as is, next to whatever else
+it serves. With nginx:
 
 ```nginx
 location /api/v1/ {
-    proxy_pass http://127.0.0.1:8000/;   # the trailing slash strips /api/v1
+    proxy_pass http://127.0.0.1:8000;   # no trailing slash: keep /api/v1 in the path
 }
-```
-
-```bash
-UVICORN_ROOT_PATH=/api/v1   # in .env, next to WG_API_KEY
 ```
 
 ## Project Structure
