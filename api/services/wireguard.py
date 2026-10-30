@@ -91,10 +91,11 @@ async def _check(args: list[str], secret: str | None = None) -> str:
 
 
 def _conf_path(name: str) -> Path:
-    conf = (WG_CONFIG_DIR / f"{name}.conf").resolve()
-    if conf.parent != WG_CONFIG_DIR.resolve():
+    # The name pattern allows no '/', so the path cannot leave the config directory.
+    # The file itself may be a symlink, as wg-quick allows.
+    if not IFACE_NAME_PATTERN.match(name):
         raise ValueError(f"Invalid interface name: {name}")
-    return conf
+    return WG_CONFIG_DIR / f"{name}.conf"
 
 
 def _require_conf(name: str) -> Path:

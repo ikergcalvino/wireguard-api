@@ -1,6 +1,6 @@
 import asyncio
 import os
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 import uvloop
@@ -11,6 +11,7 @@ from api.services.wireguard import (
     _interface_from_dump,
     _parse_peers_dump,
     _run,
+    interface_save,
 )
 from tests.conftest import VALID_KEY
 
@@ -65,12 +66,30 @@ class TestConfPath:
             result = _conf_path("wg0")
             assert result == tmp_path / "wg0.conf"
 
-    def test_path_traversal_rejected(self, tmp_path):
+    @pytest.mark.parametrize("name", ["../etc/passwd", "a/b", "/etc/passwd", "", "x" * 16])
+    def test_invalid_names_rejected(self, tmp_path, name):
         with (
             patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path),
             pytest.raises(ValueError, match="Invalid interface name"),
         ):
-            _conf_path("../etc/passwd")
+            _conf_path(name)
+
+    def test_dots_stay_inside_the_directory(self, tmp_path):
+        with patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path):
+            assert _conf_path("..").parent == tmp_path
+
+    async def test_symlinked_conf_is_accepted(self, tmp_path):
+        target = tmp_path / "elsewhere" / "wg0.conf"
+        target.parent.mkdir()
+        target.write_text("")
+        (tmp_path / "confs").mkdir()
+        (tmp_path / "confs" / "wg0.conf").symlink_to(target)
+        with (
+            patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path / "confs"),
+            patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "", 0)) as mock_run,
+        ):
+            await interface_save("wg0")
+        mock_run.assert_awaited_once_with(["wg-quick", "save", "wg0"], secret=None)
 
 
 # ---------------------------------------------------------------------------
