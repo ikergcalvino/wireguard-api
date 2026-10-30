@@ -1,3 +1,4 @@
+import asyncio
 from unittest.mock import AsyncMock, call, patch
 
 import pytest
@@ -213,3 +214,41 @@ class TestLifecycle:
         ):
             await func("wg0")
         mock_run.assert_not_awaited()
+
+
+class TestLifecycleLocking:
+    @pytest.fixture
+    def tracked_run(self, tmp_path):
+        running: dict[str, int] = {}
+        peak: dict[str, int] = {}
+
+        async def fake_run(args, stdin_data=None):
+            name = args[-1]
+            running[name] = running.get(name, 0) + 1
+            peak[name] = max(peak.get(name, 0), running[name])
+            await asyncio.sleep(0.01)
+            running[name] -= 1
+            return "", "", 0
+
+        for name in ("wg0", "wg1"):
+            (tmp_path / f"{name}.conf").write_text("")
+        with (
+            patch("api.services.wireguard._run", side_effect=fake_run),
+            patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path),
+        ):
+            yield peak
+
+    async def test_same_interface_is_serialized(self, tracked_run):
+        await asyncio.gather(interface_save("wg0"), interface_save("wg0"), interface_down("wg0"))
+        assert tracked_run["wg0"] == 1
+
+    async def test_different_interfaces_run_concurrently(self, tracked_run):
+        await asyncio.gather(interface_save("wg0"), interface_save("wg1"), interface_save("wg0"))
+        assert tracked_run == {"wg0": 1, "wg1": 1}
+
+    async def test_unknown_interface_does_not_create_a_lock(self, tracked_run):
+        from api.services.wireguard import _lifecycle_locks
+
+        with pytest.raises(InterfaceNotFound):
+            await interface_save("nope")
+        assert "nope" not in _lifecycle_locks

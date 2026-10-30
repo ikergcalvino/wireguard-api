@@ -14,6 +14,11 @@ logger = logging.getLogger("wireguard-api")
 WG_CONFIG_DIR = settings.config_dir
 _CMD_TIMEOUT = 30
 
+# wg-quick up/down/save on the same interface must not overlap: concurrent saves
+# share a temporary file, and up/down race each other. Locks live in this process,
+# so the API must run with a single worker.
+_lifecycle_locks: dict[str, asyncio.Lock] = {}
+
 
 class InterfaceNotFound(Exception):
     """The interface has no config file, so wg-quick cannot manage it."""
@@ -151,22 +156,23 @@ async def update_interface(name: str, update: InterfaceUpdate) -> None:
     await _check(args, stdin_data=stdin_data)
 
 
-async def interface_up(name: str) -> None:
+async def _wg_quick(action: str, name: str) -> None:
     _require_conf(name)
-    logger.info("bringing up interface %s", name)
-    await _check(["wg-quick", "up", name])
+    async with _lifecycle_locks.setdefault(name, asyncio.Lock()):
+        logger.info("wg-quick %s %s", action, name)
+        await _check(["wg-quick", action, name])
+
+
+async def interface_up(name: str) -> None:
+    await _wg_quick("up", name)
 
 
 async def interface_down(name: str) -> None:
-    _require_conf(name)
-    logger.info("bringing down interface %s", name)
-    await _check(["wg-quick", "down", name])
+    await _wg_quick("down", name)
 
 
 async def interface_save(name: str) -> None:
-    _require_conf(name)
-    logger.info("saving interface %s", name)
-    await _check(["wg-quick", "save", name])
+    await _wg_quick("save", name)
 
 
 # ---------------------------------------------------------------------------

@@ -201,6 +201,8 @@ make check         # ruff, ty and pytest
 - **Persistence** — `wg-quick save` rewrites the `.conf` file from the running interface, keeping its `wg-quick`
   settings; nothing is saved automatically
 - **Down interfaces** — any `<name>.conf` in the config directory is listed as `down` without reading its contents
+- **Concurrency** — `up`, `down` and `save` on the same interface run one at a time. The locks live in the
+  process, so run the API with a single uvicorn worker (the default)
 
 ## Security
 
