@@ -16,7 +16,7 @@ follows.
 ```
 api/
 ├── main.py           # FastAPI app: middleware, exception handlers and routers
-├── routers/          # HTTP layer: one module per resource (interfaces, peers)
+├── routers/          # HTTP layer: one module per resource (interfaces, peers, system)
 ├── models/           # Pydantic models and validation patterns
 └── services/
     └── wireguard.py  # Every call to wg and wg-quick

@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     def normalize_log_level(cls, v: object) -> object:
         return v.upper() if isinstance(v, str) else v
 
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_origins.split(",")]
+
 
 def load_settings() -> Settings:
     try:

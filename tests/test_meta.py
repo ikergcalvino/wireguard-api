@@ -48,7 +48,7 @@ class TestMeta:
 
     async def test_health_degraded_missing_config_dir(self, client, tmp_path):
         missing = tmp_path / "nonexistent"
-        with patch("api.main.settings") as mock_settings:
+        with patch("api.routers.system.settings") as mock_settings:
             mock_settings.config_dir = missing
             r = await client.get("/api/v1/health")
             assert r.status_code == 200
@@ -179,11 +179,14 @@ class TestCORS:
         allow_headers = r.headers.get("access-control-allow-headers", "")
         assert "x-api-key" in allow_headers.lower()
 
-    async def test_cors_wildcard_disables_credentials(self):
-        with patch("api.main.settings") as mock_settings:
-            mock_settings.cors_origins = "*"
-            mock_settings.api_key = ""
-            mock_settings.config_dir.is_dir.return_value = True
-            from api.main import cors_origins
+    async def test_cors_wildcard_disables_credentials(self, client):
+        r = await client.options(
+            "/api/v1/health",
+            headers={"Origin": "http://example.com", "Access-Control-Request-Method": "GET"},
+        )
+        assert r.headers["access-control-allow-origin"] == "*"
+        assert "access-control-allow-credentials" not in r.headers
 
-            assert "*" in cors_origins
+    def test_origin_list_is_comma_separated(self, monkeypatch):
+        monkeypatch.setenv("WG_CORS_ORIGINS", "https://a.example, https://b.example")
+        assert Settings().cors_origin_list == ["https://a.example", "https://b.example"]

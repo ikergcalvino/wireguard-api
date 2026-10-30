@@ -160,11 +160,12 @@ curl -X POST http://localhost:8000/api/v1/interfaces/wg0/save \
 ```
 wireguard-api/
 ├── api/
+│   ├── __init__.py        # Package version
 │   ├── config.py          # Settings (pydantic-settings, WG_ prefix)
 │   ├── dependencies.py    # API key authentication
 │   ├── exceptions.py      # Global exception handlers
 │   ├── logging.py         # Logging configuration (dictConfig)
-│   ├── main.py            # FastAPI app, middleware, routes
+│   ├── main.py            # FastAPI app: middleware, exception handlers and routers
 │   ├── models/
 │   │   ├── __init__.py    # Shared validation patterns
 │   │   ├── interfaces.py  # Interface and InterfaceUpdate models
@@ -172,7 +173,8 @@ wireguard-api/
 │   ├── routers/
 │   │   ├── __init__.py    # Shared path parameter types
 │   │   ├── interfaces.py  # Interface endpoints
-│   │   └── peers.py       # Peer endpoints
+│   │   ├── peers.py       # Peer endpoints
+│   │   └── system.py      # API info and health check
 │   └── services/
 │       ├── __init__.py    # Public service exports
 │       └── wireguard.py   # wg / wg-quick subprocess wrappers
