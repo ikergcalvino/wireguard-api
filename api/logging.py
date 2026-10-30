@@ -9,7 +9,7 @@ LOG_DATE_FORMAT = "%Y-%m-%dT%H:%M:%S"
 
 
 def _build_config() -> dict[str, Any]:
-    level = settings.log_level.upper()
+    level = settings.log_level
     return {
         "version": 1,
         "disable_existing_loggers": False,

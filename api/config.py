@@ -1,6 +1,7 @@
 from pathlib import Path
+from typing import Literal
 
-from pydantic import Field, ValidationError
+from pydantic import Field, ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -9,9 +10,14 @@ class Settings(BaseSettings):
 
     # Required: the API controls the host's WireGuard interfaces, so it never runs unauthenticated.
     api_key: str = Field(min_length=16)
-    log_level: str = "INFO"
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     cors_origins: str = "*"
     config_dir: Path = Path("/etc/wireguard")
+
+    @field_validator("log_level", mode="before")
+    @classmethod
+    def normalize_log_level(cls, v: object) -> object:
+        return v.upper() if isinstance(v, str) else v
 
 
 def load_settings() -> Settings:

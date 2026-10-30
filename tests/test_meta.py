@@ -99,6 +99,16 @@ class TestSettings:
         with pytest.raises(ValidationError, match="at least 16 characters"):
             Settings()
 
+    @pytest.mark.parametrize(("value", "expected"), [("debug", "DEBUG"), ("Warning", "WARNING"), ("ERROR", "ERROR")])
+    def test_log_level_is_case_insensitive(self, monkeypatch, value, expected):
+        monkeypatch.setenv("WG_LOG_LEVEL", value)
+        assert Settings().log_level == expected
+
+    def test_invalid_log_level_exits_with_a_readable_message(self, monkeypatch):
+        monkeypatch.setenv("WG_LOG_LEVEL", "verbose")
+        with pytest.raises(SystemExit, match="^Invalid configuration: WG_LOG_LEVEL: Input should be 'DEBUG'"):
+            load_settings()
+
     def test_load_settings_exits_with_a_readable_message(self, monkeypatch):
         monkeypatch.delenv("WG_API_KEY")
         with pytest.raises(SystemExit, match="^Invalid configuration: WG_API_KEY: Field required$"):

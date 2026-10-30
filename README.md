@@ -149,7 +149,7 @@ curl -X POST http://localhost:8000/api/v1/interfaces/wg0/save \
 | Variable          | Default          | Description                                                      |
 |-------------------|------------------|------------------------------------------------------------------|
 | `WG_API_KEY`      | (required)       | API key for authentication, at least 16 characters               |
-| `WG_LOG_LEVEL`    | `INFO`           | Log level: DEBUG, INFO, WARNING, ERROR                           |
+| `WG_LOG_LEVEL`    | `INFO`           | Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL                 |
 | `WG_CORS_ORIGINS` | `*`              | Comma-separated allowed CORS origins                             |
 | `WG_CONFIG_DIR`   | `/etc/wireguard` | Directory with the WireGuard `.conf` files                       |
 | `UVICORN_HOST`    | `0.0.0.0`        | Address the server listens on (Docker image and `make run`)      |
