@@ -5,6 +5,7 @@ import pytest
 
 from api.models.interfaces import InterfaceUpdate
 from api.services.wireguard import (
+    SECRET_ARG,
     InterfaceNotFound,
     WireGuardError,
     get_interface,
@@ -160,15 +161,15 @@ class TestUpdateInterface:
             assert await update_interface("wg0", update) is None
         assert mock_run.await_args_list == [
             call(
-                ["wg", "set", "wg0", "private-key", "/dev/stdin", "listen-port", "51821", "fwmark", "0x10"],
-                stdin_data=VALID_KEY.encode(),
+                ["wg", "set", "wg0", "private-key", SECRET_ARG, "listen-port", "51821", "fwmark", "0x10"],
+                secret=VALID_KEY,
             )
         ]
 
     async def test_omitted_fields_are_left_unchanged(self):
         with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "", 0)) as mock_run:
             await update_interface("wg0", InterfaceUpdate(listen_port=51821))
-        assert mock_run.await_args_list == [call(["wg", "set", "wg0", "listen-port", "51821"], stdin_data=None)]
+        assert mock_run.await_args_list == [call(["wg", "set", "wg0", "listen-port", "51821"], secret=None)]
 
     async def test_does_not_write_files(self, tmp_path):
         with (
@@ -203,7 +204,7 @@ class TestLifecycle:
             patch("api.services.wireguard.WG_CONFIG_DIR", tmp_path),
         ):
             assert await func("wg0") is None
-        mock_run.assert_awaited_once_with(["wg-quick", action, "wg0"], stdin_data=None)
+        mock_run.assert_awaited_once_with(["wg-quick", action, "wg0"], secret=None)
 
     @pytest.mark.parametrize("func", [interface_up, interface_down, interface_save])
     async def test_requires_conf(self, tmp_path, func):
@@ -222,7 +223,7 @@ class TestLifecycleLocking:
         running: dict[str, int] = {}
         peak: dict[str, int] = {}
 
-        async def fake_run(args, stdin_data=None):
+        async def fake_run(args, secret=None):
             name = args[-1]
             running[name] = running.get(name, 0) + 1
             peak[name] = max(peak.get(name, 0), running[name])

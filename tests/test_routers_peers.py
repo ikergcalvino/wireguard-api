@@ -168,7 +168,7 @@ class TestSlashInPublicKey:
         with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "", 0)) as mock_run:
             r = await client.delete(f"/api/v1/interfaces/wg0/peers/{SLASH_KEY}")
             assert r.status_code == 204
-            mock_run.assert_awaited_once_with(["wg", "set", "wg0", "peer", SLASH_KEY, "remove"], stdin_data=None)
+            mock_run.assert_awaited_once_with(["wg", "set", "wg0", "peer", SLASH_KEY, "remove"], secret=None)
 
     async def test_extra_segments_rejected(self, client):
         r = await client.get(f"/api/v1/interfaces/wg0/peers/{SLASH_KEY}/extra")
@@ -203,7 +203,7 @@ class TestPresharedKeyNotExposed:
             )
             assert r.status_code == 201
             assert "preshared_key" not in r.json()
-            assert mock_run.call_args_list[0][1]["stdin_data"] == VALID_KEY.encode()
+            assert mock_run.call_args_list[0][1]["secret"] == VALID_KEY
 
     async def test_schema_is_write_only(self, client):
         schemas = (await client.get("/api/v1/openapi.json")).json()["components"]["schemas"]

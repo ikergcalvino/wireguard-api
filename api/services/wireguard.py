@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 from pathlib import Path
 
 from api.config import settings
@@ -11,6 +12,9 @@ logger = logging.getLogger("wireguard-api")
 
 WG_CONFIG_DIR = settings.config_dir
 _CMD_TIMEOUT = 30
+
+# Placeholder in a command's arguments for the path of the secret passed to _run().
+SECRET_ARG = "<secret>"  # noqa: S105 - a placeholder, not a secret
 
 # wg-quick up/down/save on the same interface must not overlap: concurrent saves
 # share a temporary file, and up/down race each other. Locks live in this process,
@@ -33,21 +37,38 @@ class WireGuardUnavailable(Exception):
     """A wg or wg-quick command could not be executed at all."""
 
 
-async def _run(args: list[str], stdin_data: bytes | None = None) -> tuple[str, str, int]:
+async def _run(args: list[str], secret: str | None = None) -> tuple[str, str, int]:
+    """Run a command without a shell. A secret is written to a pipe and passed to the
+    command as a /dev/fd/N path wherever SECRET_ARG appears in args, so it never shows
+    in the process list and never touches disk."""
+    read_fd: int | None = None
+    if secret is not None:
+        read_fd, write_fd = os.pipe()
+        try:
+            os.write(write_fd, secret.encode())  # a key is 44 bytes, far below the pipe buffer
+        finally:
+            os.close(write_fd)
+        args = [f"/dev/fd/{read_fd}" if arg == SECRET_ARG else arg for arg in args]
     logger.debug("exec: %s", args)
     try:
+        # Not stdin: under uvloop, writing to the stdin of a command that reads
+        # /dev/stdin itself (as wg does) fails with "the handler is closed".
         proc = await asyncio.create_subprocess_exec(
             *args,
-            stdin=asyncio.subprocess.PIPE if stdin_data else None,
+            stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            pass_fds=(read_fd,) if read_fd is not None else (),
         )
     except OSError as exc:
         logger.error("cannot execute %s: %s", args[0], exc)
         raise WireGuardUnavailable(f"Cannot execute {args[0]}: {exc.strerror}") from exc
+    finally:
+        if read_fd is not None:
+            os.close(read_fd)
     try:
         async with asyncio.timeout(_CMD_TIMEOUT):
-            stdout, stderr = await proc.communicate(input=stdin_data)
+            stdout, stderr = await proc.communicate()
     except TimeoutError:
         proc.kill()
         await proc.wait()
@@ -61,9 +82,9 @@ async def _run(args: list[str], stdin_data: bytes | None = None) -> tuple[str, s
     return out, err, rc
 
 
-async def _check(args: list[str], stdin_data: bytes | None = None) -> str:
+async def _check(args: list[str], secret: str | None = None) -> str:
     """Run a command and return its output, raising WireGuardError if it fails."""
-    out, err, rc = await _run(args, stdin_data=stdin_data)
+    out, err, rc = await _run(args, secret=secret)
     if rc != 0:
         raise WireGuardError(err or f"{args[0]} exited with status {rc}")
     return out
@@ -142,14 +163,13 @@ async def get_interface(name: str) -> Interface | None:
 async def update_interface(name: str, update: InterfaceUpdate) -> None:
     args = ["wg", "set", name]
     if update.private_key:
-        args += ["private-key", "/dev/stdin"]
+        args += ["private-key", SECRET_ARG]
     if update.listen_port is not None:
         args += ["listen-port", str(update.listen_port)]
     if update.fw_mark is not None:
         args += ["fwmark", update.fw_mark]
-    stdin_data = update.private_key.encode() if update.private_key else None
     logger.info("updating interface %s", name)
-    await _check(args, stdin_data=stdin_data)
+    await _check(args, secret=update.private_key)
 
 
 async def _wg_quick(action: str, name: str) -> None:
@@ -222,12 +242,11 @@ async def set_peer(iface: str, public_key: str, peer: PeerCreate | PeerUpdate) -
     if peer.endpoint:
         args += ["endpoint", peer.endpoint]
     if peer.preshared_key:
-        args += ["preshared-key", "/dev/stdin"]
+        args += ["preshared-key", SECRET_ARG]
     if peer.persistent_keepalive is not None:
         args += ["persistent-keepalive", str(peer.persistent_keepalive)]
-    stdin_data = peer.preshared_key.encode() if peer.preshared_key else None
     logger.info("setting peer %s on %s", public_key[:8], iface)
-    await _check(args, stdin_data=stdin_data)
+    await _check(args, secret=peer.preshared_key)
 
 
 async def delete_peer(iface: str, public_key: str) -> None:

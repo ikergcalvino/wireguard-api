@@ -67,7 +67,7 @@ class TestSetPeer:
         with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "", 0)) as mock_run:
             assert await set_peer("wg0", VALID_KEY, PeerUpdate(allowed_ips="10.0.0.2/32")) is None
             mock_run.assert_awaited_once_with(
-                ["wg", "set", "wg0", "peer", VALID_KEY, "allowed-ips", "10.0.0.2/32"], stdin_data=None
+                ["wg", "set", "wg0", "peer", VALID_KEY, "allowed-ips", "10.0.0.2/32"], secret=None
             )
 
     async def test_with_all_options(self):
@@ -88,7 +88,7 @@ class TestSetPeer:
             assert "endpoint" in args
             assert "preshared-key" in args
             assert "persistent-keepalive" in args
-            assert mock_run.call_args_list[0][1]["stdin_data"] == VALID_KEY.encode()
+            assert mock_run.call_args_list[0][1]["secret"] == VALID_KEY
 
     async def test_returns_wg_error(self):
         with (
@@ -107,7 +107,7 @@ class TestDeletePeer:
     async def test_success(self):
         with patch("api.services.wireguard._run", new_callable=AsyncMock, return_value=("", "", 0)) as mock_run:
             assert await delete_peer("wg0", VALID_KEY) is None
-            mock_run.assert_awaited_once_with(["wg", "set", "wg0", "peer", VALID_KEY, "remove"], stdin_data=None)
+            mock_run.assert_awaited_once_with(["wg", "set", "wg0", "peer", VALID_KEY, "remove"], secret=None)
 
     async def test_returns_wg_error(self):
         with (

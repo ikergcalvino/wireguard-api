@@ -1,8 +1,12 @@
+import asyncio
+import os
 from unittest.mock import patch
 
 import pytest
+import uvloop
 
 from api.services.wireguard import (
+    SECRET_ARG,
     _conf_path,
     _interface_from_dump,
     _parse_peers_dump,
@@ -16,6 +20,32 @@ from tests.conftest import VALID_KEY
 
 
 class TestRun:
+    async def test_secret_is_passed_through_a_pipe(self):
+        out, _, rc = await _run(["cat", SECRET_ARG], secret=VALID_KEY)
+        assert (out, rc) == (VALID_KEY, 0)
+
+    async def test_secret_never_appears_in_arguments(self):
+        out, _, _ = await _run(["sh", "-c", 'echo "$0"', SECRET_ARG], secret=VALID_KEY)
+        assert out.startswith("/dev/fd/")
+        assert VALID_KEY not in out
+
+    async def test_secret_works_under_uvloop(self):
+        # uvicorn runs the app on uvloop, where passing secrets through stdin broke.
+        def run_on_uvloop():
+            return asyncio.run(_run(["cat", SECRET_ARG], secret=VALID_KEY), loop_factory=uvloop.new_event_loop)
+
+        out, _, rc = await asyncio.to_thread(run_on_uvloop)
+        assert (out, rc) == (VALID_KEY, 0)
+
+    async def test_pipe_is_closed_after_the_command(self):
+        before = set(os.listdir("/proc/self/fd"))
+        await _run(["cat", SECRET_ARG], secret=VALID_KEY)
+        assert set(os.listdir("/proc/self/fd")) == before
+
+    async def test_command_does_not_inherit_stdin(self):
+        out, _, rc = await _run(["cat"])
+        assert (out, rc) == ("", 0)
+
     async def test_timeout_returns_error(self):
         with patch("api.services.wireguard._CMD_TIMEOUT", 0.1):
             out, err, rc = await _run(["sleep", "10"])
